@@ -220,6 +220,59 @@ function getTradeStatus($lastTrade) {
 }
 
 /**
+ * Calculate trade status based on last trade age with custom thresholds
+ * Returns status indicator, color class, and time difference
+ * Status is sticky: once it reaches red (danger), it stays red
+ *
+ * @param string $lastTrade The last trade timestamp (assumed to be UTC from bot)
+ * @param array $thresholds Custom thresholds array ['success' => minutes, 'warning' => minutes]
+ * @return array ['status' => string, 'indicator' => string, 'time_diff' => string]
+ */
+function getTradeStatusWithCustomThresholds($lastTrade, $thresholds) {
+    $config = include __DIR__ . '/../config/config.php';
+
+    try {
+        // Create DateTime object from UTC timestamp (from bot)
+        $tradeTime = new DateTime($lastTrade, new DateTimeZone('UTC'));
+
+        // Create current time in configured timezone
+        $now = new DateTime('now', new DateTimeZone($config['timezone']));
+
+        // Convert trade time to configured timezone for proper comparison
+        $tradeTime->setTimezone(new DateTimeZone($config['timezone']));
+
+        // Calculate difference
+        $interval = $now->diff($tradeTime);
+        // Include days in the calculation: days * 1440 minutes + hours * 60 + minutes
+        $minutesOld = (int) $interval->format('%d') * 1440 + (int) $interval->format('%h') * 60 + (int) $interval->format('%i');
+
+        // Format time difference with appropriate unit
+        $days = (int) $interval->format('%d');
+        $hours = (int) $interval->format('%h');
+        $minutes = (int) $interval->format('%i');
+
+        if ($days > 0) {
+            $timeDiff = $days . ' day' . ($days > 1 ? 's' : '') . ' ago';
+        } elseif ($hours > 0) {
+            $timeDiff = $hours . ' hour' . ($hours > 1 ? 's' : '') . ' ago';
+        } else {
+            $timeDiff = $minutes . ' min ago';
+        }
+
+        // Sticky status: once danger threshold is reached, always show danger
+        if ($minutesOld >= $thresholds['warning']) {
+            return ['status' => 'danger', 'indicator' => '🔴', 'time_diff' => $timeDiff];
+        } elseif ($minutesOld >= $thresholds['success']) {
+            return ['status' => 'warning', 'indicator' => '🟡', 'time_diff' => $timeDiff];
+        } else {
+            return ['status' => 'success', 'indicator' => '🟢', 'time_diff' => $timeDiff];
+        }
+    } catch (Exception $e) {
+        return ['status' => 'unknown', 'indicator' => '⚪', 'time_diff' => 'N/A'];
+    }
+}
+
+/**
  * Log API access or error
  *
  * @param string $type Log type: 'api' or 'error'
@@ -248,6 +301,43 @@ function logMessage($type, $message) {
 }
 
 /**
+ * Get all current coin prices from prices_current table
+ *
+ * @param PDO $pdo Database connection
+ * @return array Associative array [coin => price_usdt], e.g. ['BTC' => 50000.0, 'ETH' => 3000.0]
+ */
+function getCurrentPrices($pdo) {
+    try {
+        $stmt = $pdo->prepare('SELECT coin, price_usdt FROM prices_current');
+        $stmt->execute();
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $prices = [];
+        foreach ($rows as $row) {
+            $prices[$row['coin']] = floatval($row['price_usdt']);
+        }
+        return $prices;
+    } catch (Exception $e) {
+        logMessage('error', 'getCurrentPrices error: ' . $e->getMessage());
+        return [];
+    }
+}
+
+/**
+ * Calculate NAV expressed in a given coin
+ * Returns null if price is zero or unavailable
+ *
+ * @param float $navUsd NAV in USD
+ * @param float|null $coinPriceUsdt Current price of the coin in USDT
+ * @return float|null NAV in coin units, or null if price unavailable
+ */
+function calcNavInCoin($navUsd, $coinPriceUsdt) {
+    if ($coinPriceUsdt === null || $coinPriceUsdt <= 0) {
+        return null;
+    }
+    return $navUsd / $coinPriceUsdt;
+}
+
+/**
  * Get all strategies from database
  *
  * @param PDO $pdo Database connection
@@ -255,11 +345,28 @@ function logMessage($type, $message) {
  */
 function getAllStrategies($pdo) {
     try {
-        $stmt = $pdo->prepare('SELECT id, strategy_name, nav, nav_btc, system_token, fee_currency_balance, fee_currency_balance_usd, last_trade, last_update FROM strategies ORDER BY strategy_name ASC');
+        $stmt = $pdo->prepare('SELECT id, strategy_name, nav, nav_btc, nav_eth, system_token, fee_currency_balance, fee_currency_balance_usd, last_trade, last_trade_attempt, last_update FROM strategies ORDER BY strategy_name ASC');
         $stmt->execute();
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     } catch (Exception $e) {
         logMessage('error', 'Database query error: ' . $e->getMessage());
+        return [];
+    }
+}
+
+/**
+ * Get all rows from prices_current with full details
+ *
+ * @param PDO $pdo Database connection
+ * @return array Array of price rows ordered by coin
+ */
+function getAllPrices($pdo) {
+    try {
+        $stmt = $pdo->prepare('SELECT coin, price_usdt, ct_exchange, timestamp, created_at FROM prices_current ORDER BY coin ASC');
+        $stmt->execute();
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Exception $e) {
+        logMessage('error', 'getAllPrices error: ' . $e->getMessage());
         return [];
     }
 }
@@ -294,4 +401,37 @@ function sendJsonResponse($httpCode, $data) {
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
     exit;
+}
+
+/**
+ * Insert or update a coin price in prices_current
+ *
+ * @param PDO $pdo Database connection
+ * @param string $coin Coin symbol (e.g. 'BTC')
+ * @param float $priceUsdt Price in USDT
+ * @param string|null $ctExchange Exchange name (optional)
+ * @param string $timestamp Datetime string (YYYY-MM-DD HH:MM:SS)
+ * @return string 'inserted' or 'updated'
+ */
+function upsertPrice(PDO $pdo, string $coin, float $priceUsdt, ?string $ctExchange, string $timestamp): string {
+    $checkStmt = $pdo->prepare('SELECT id FROM prices_current WHERE coin = ?');
+    $checkStmt->execute([$coin]);
+    $exists = $checkStmt->fetch();
+
+    if ($exists) {
+        $stmt = $pdo->prepare('
+            UPDATE prices_current
+            SET price_usdt = ?, ct_exchange = ?, timestamp = ?
+            WHERE coin = ?
+        ');
+        $stmt->execute([$priceUsdt, $ctExchange, $timestamp, $coin]);
+        return 'updated';
+    } else {
+        $stmt = $pdo->prepare('
+            INSERT INTO prices_current (coin, price_usdt, ct_exchange, timestamp)
+            VALUES (?, ?, ?, ?)
+        ');
+        $stmt->execute([$coin, $priceUsdt, $ctExchange, $timestamp]);
+        return 'inserted';
+    }
 }
