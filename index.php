@@ -25,20 +25,36 @@ $pdo = getPDO();
 // Get all strategies
 $strategies = getAllStrategies($pdo);
 
+// Get current coin prices for NAV calculations
+$coinPrices = getCurrentPrices($pdo);
+$btcPrice = $coinPrices['BTC'] ?? null;
+$ethPrice = $coinPrices['ETH'] ?? null;
+$eurPrice = $coinPrices['EUR'] ?? null;  // EUR/USD rate (price_usdt = how many USD per 1 EUR)
+
 if (DEBUG_MODE) {
     error_log('Dashboard loaded. Strategies count: ' . count($strategies));
+    error_log('BTC price: ' . ($btcPrice ?? 'n/a') . ', ETH price: ' . ($ethPrice ?? 'n/a') . ', EUR/USD: ' . ($eurPrice ?? 'n/a'));
 }
 
 // Calculate total strategies
 $totalStrategies = count($strategies);
 
-// Calculate total NAV and NAV-BTC
+// Calculate total NAV, NAV-BTC, NAV-ETH, NAV-EUR from live prices
 $totalNav = 0;
 $totalNavBtc = 0;
+$totalNavEth = 0;
+$totalNavEur = 0;
 foreach ($strategies as $strategy) {
-    $totalNav += floatval($strategy['nav']);
-    if ($strategy['nav_btc'] !== null) {
-        $totalNavBtc += floatval($strategy['nav_btc']);
+    $navUsd = floatval($strategy['nav']);
+    $totalNav += $navUsd;
+    if ($btcPrice !== null) {
+        $totalNavBtc += calcNavInCoin($navUsd, $btcPrice);
+    }
+    if ($ethPrice !== null) {
+        $totalNavEth += calcNavInCoin($navUsd, $ethPrice);
+    }
+    if ($eurPrice !== null) {
+        $totalNavEur += calcNavInCoin($navUsd, $eurPrice);
     }
 }
 
@@ -60,8 +76,9 @@ $currentTimeFormatted = $currentTime->format('d.m.Y H:i:s');
 <body>
     <div class="container-fluid py-5">
         <div class="row mb-4">
-            <div class="col-md-8">
-                <h1><?php echo safeOutput($config['dashboard_title']); ?></h1>
+            <div class="col-md-8 d-flex align-items-center gap-3">
+                <h1 class="mb-0"><?php echo safeOutput($config['dashboard_title']); ?></h1>
+                <a href="prices.php" class="btn btn-outline-primary btn-sm">Prices</a>
             </div>
             <div class="col-md-4 text-end">
                 <div class="dashboard-info">
@@ -87,7 +104,9 @@ $currentTimeFormatted = $currentTime->format('d.m.Y H:i:s');
                     <ul class="mb-0 mt-2" style="font-size: 0.9em;">
                         <li>Strategien geladen: <strong><?php echo $totalStrategies; ?></strong></li>
                         <li>Total NAV (USD): <strong><?php echo formatNav($totalNav); ?></strong></li>
-                        <li>Total NAV (BTC): <strong><?php echo formatNav($totalNavBtc); ?></strong></li>
+                        <li>Total NAV (BTC): <strong><?php echo $btcPrice !== null ? formatNav($totalNavBtc, 6) . ' (BTC @ ' . number_format($btcPrice, 2, ',', '.') . ' USDT)' : 'n/a (kein BTC-Preis)'; ?></strong></li>
+                        <li>Total NAV (ETH): <strong><?php echo $ethPrice !== null ? formatNav($totalNavEth, 4) . ' (ETH @ ' . number_format($ethPrice, 2, ',', '.') . ' USDT)' : 'n/a (kein ETH-Preis)'; ?></strong></li>
+                        <li>Total NAV (EUR): <strong><?php echo $eurPrice !== null ? formatNav($totalNavEur) . ' (EUR/USD @ ' . number_format($eurPrice, 4, ',', '.') . ')' : 'n/a (kein EUR-Preis)'; ?></strong></li>
                         <li>Timezone: <strong><?php echo $config['timezone']; ?></strong></li>
                         <li>Refresh-Interval: <strong><?php echo $config['refresh_interval']; ?></strong>s</li>
                     </ul>
@@ -98,7 +117,7 @@ $currentTimeFormatted = $currentTime->format('d.m.Y H:i:s');
         <?php endif; ?>
 
         <div class="row mb-4">
-            <div class="col-md-12">
+            <div class="col-md-9">
                 <div class="total-nav-box">
                     <div class="total-nav-item">
                         <div class="total-nav-label">Total NAV (USD)</div>
@@ -106,12 +125,51 @@ $currentTimeFormatted = $currentTime->format('d.m.Y H:i:s');
                     </div>
                     <div class="total-nav-item">
                         <div class="total-nav-label">Total NAV (BTC)</div>
-                        <div class="total-nav-value" id="totalNavBtc"><?php echo formatNav($totalNavBtc); ?></div>
+                        <div class="total-nav-value" id="totalNavBtc"><?php echo $btcPrice !== null ? formatNav($totalNavBtc, 6) : '–'; ?></div>
+                    </div>
+                    <div class="total-nav-item">
+                        <div class="total-nav-label">Total NAV (ETH)</div>
+                        <div class="total-nav-value" id="totalNavEth"><?php echo $ethPrice !== null ? formatNav($totalNavEth, 4) : '–'; ?></div>
+                    </div>
+                    <div class="total-nav-item">
+                        <div class="total-nav-label">Total NAV (EUR)</div>
+                        <div class="total-nav-value" id="totalNavEur"><?php echo $eurPrice !== null ? formatNav($totalNavEur) : '–'; ?></div>
                     </div>
                 </div>
             </div>
+            <div class="col-md-3">
+                <div class="price-ticker-box">
+                    <div class="price-ticker-item">
+                        <div class="price-ticker-label">BTC / USDT</div>
+                        <div class="price-ticker-value">
+                            <?php echo $btcPrice !== null
+                                ? number_format($btcPrice, 2, ',', '.')
+                                : '<span class="price-ticker-na">n/a</span>'; ?>
+                        </div>
+                    </div>
+                    <div class="price-ticker-divider"></div>
+                    <div class="price-ticker-item">
+                        <div class="price-ticker-label">ETH / USDT</div>
+                        <div class="price-ticker-value">
+                            <?php echo $ethPrice !== null
+                                ? number_format($ethPrice, 2, ',', '.')
+                                : '<span class="price-ticker-na">n/a</span>'; ?>
+                        </div>
+                    </div>
+                    <div class="price-ticker-divider"></div>
+                    <div class="price-ticker-item">
+                        <div class="price-ticker-label">EUR / USD</div>
+                        <div class="price-ticker-value">
+                            <?php echo $eurPrice !== null
+                                ? number_format($eurPrice, 4, ',', '.')
+                                : '<span class="price-ticker-na">n/a</span>'; ?>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
         </div>
-. i
+
         <?php if (empty($strategies)): ?>
             <div class="alert alert-info" role="alert">
                 No strategies available yet. Use the API to add strategy data.
@@ -124,8 +182,11 @@ $currentTimeFormatted = $currentTime->format('d.m.Y H:i:s');
                             <th>Strategy</th>
                             <th>NAV</th>
                             <th>NAV-BTC</th>
+                            <th>NAV-ETH</th>
+                            <th>NAV-EUR</th>
                             <th>Fee Currency</th>
                             <th>Last Trade</th>
+                            <th>Last Attempt</th>
                             <th>LAST UPDATE</th>
                         </tr>
                     </thead>
@@ -134,6 +195,20 @@ $currentTimeFormatted = $currentTime->format('d.m.Y H:i:s');
                             <?php
                             $status = getDataStatus($strategy['last_update']);
                             $statusClass = 'status-' . $status['status'];
+                            $navUsd = floatval($strategy['nav']);
+                            $navBtcCalc = calcNavInCoin($navUsd, $btcPrice);
+                            $navEthCalc = calcNavInCoin($navUsd, $ethPrice);
+                            $navEurCalc = calcNavInCoin($navUsd, $eurPrice);
+
+                            // Check if we have trade data to potentially override status color
+                            if ($strategy['last_trade'] !== null && $strategy['last_trade'] !== '') {
+                                $tradeStatus = getTradeStatusWithCustomThresholds($strategy['last_trade'], $config['trade_status_thresholds']);
+                                // Only override if trade status is more critical (danger > warning > success)
+                                if ($tradeStatus['status'] === 'danger' ||
+                                    ($tradeStatus['status'] === 'warning' && $status['status'] !== 'danger')) {
+                                    $statusClass = 'status-' . $tradeStatus['status'];
+                                }
+                            }
                             ?>
                             <tr class="<?php echo $statusClass; ?>">
                                 <td><?php echo safeOutput($strategy['strategy_name']); ?></td>
@@ -142,13 +217,17 @@ $currentTimeFormatted = $currentTime->format('d.m.Y H:i:s');
                                 </td>
                                 <td>
                                     <code>
-                                        <?php
-                                            if ($strategy['nav_btc'] !== null && $strategy['nav_btc'] !== '') {
-                                                echo formatNav($strategy['nav_btc']);
-                                            } else {
-                                                echo '-';
-                                            }
-                                        ?>
+                                        <?php echo $navBtcCalc !== null ? formatNav($navBtcCalc, 6) : '-'; ?>
+                                    </code>
+                                </td>
+                                <td>
+                                    <code>
+                                        <?php echo $navEthCalc !== null ? formatNav($navEthCalc, 4) : '-'; ?>
+                                    </code>
+                                </td>
+                                <td>
+                                    <code>
+                                        <?php echo $navEurCalc !== null ? formatNav($navEurCalc) : '-'; ?>
                                     </code>
                                 </td>
                                 <td>
@@ -189,13 +268,20 @@ $currentTimeFormatted = $currentTime->format('d.m.Y H:i:s');
                                 <td>
                                     <?php
                                         if ($strategy['last_trade'] !== null && $strategy['last_trade'] !== '') {
-                                            $tradeStatus = getTradeStatus($strategy['last_trade']);
-                                            echo '<span class="status-indicator">';
-                                            echo $tradeStatus['indicator'];
-                                            echo '</span>';
-                                            echo '<small class="text-muted">';
-                                            echo getTradeTimeDiff($strategy['last_trade']);
-                                            echo '</small>';
+                                            $tradeStatusForDisplay = getTradeStatusWithCustomThresholds($strategy['last_trade'], $config['trade_status_thresholds']);
+                                            echo '<span class="status-indicator">' . $tradeStatusForDisplay['indicator'] . '</span>';
+                                            echo '<small class="text-muted">' . $tradeStatusForDisplay['time_diff'] . '</small>';
+                                        } else {
+                                            echo '-';
+                                        }
+                                    ?>
+                                </td>
+                                <td>
+                                    <?php
+                                        if ($strategy['last_trade_attempt'] !== null && $strategy['last_trade_attempt'] !== '') {
+                                            $attemptStatus = getTradeStatusWithCustomThresholds($strategy['last_trade_attempt'], $config['trade_status_thresholds']);
+                                            echo '<span class="status-indicator">' . $attemptStatus['indicator'] . '</span>';
+                                            echo '<small class="text-muted">' . $attemptStatus['time_diff'] . '</small>';
                                         } else {
                                             echo '-';
                                         }
