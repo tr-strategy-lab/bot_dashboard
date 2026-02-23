@@ -17,6 +17,12 @@ return [
         'warning' => 15   // Gelb: 5-15 Minuten, Rot: > 15 Minuten
     ],
 
+    // Alter-Schwellwerte für Last Trade Status (Minuten)
+    'trade_status_thresholds' => [
+        'success' => 120,  // Grün: < 120 Minuten (2 Stunden)
+        'warning' => 480   // Gelb: 120-480 Minuten (2-8 Stunden), Rot: >= 480 Minuten
+    ],
+
     // Logging
     'enable_logging' => true,
     'log_directory' => __DIR__ . '/../logs/',

@@ -12,6 +12,7 @@
  *   "strategy_name": "btc_usdt_strategy_1",
  *   "nav": 10250.45678900,
  *   "nav_btc": 0.25678900,
+ *   "nav_eth": 5.12345678,
  *   "system_token": "ETH",
  *   "fee_currency_balance": 10,
  *   "fee_currency_balance_usd": 20000,
@@ -19,7 +20,7 @@
  *   "timestamp": "2025-10-22 14:30:00"
  * }
  *
- * Note: nav_btc, system_token, fee_currency_balance, fee_currency_balance_usd, and last_trade are optional
+ * Note: nav_btc, nav_eth, system_token, fee_currency_balance, fee_currency_balance_usd, and last_trade are optional
  * Note: last_trade accepts Unix timestamp (integer or string)
  */
 
@@ -132,6 +133,20 @@ if (isset($input['nav_btc']) && $input['nav_btc'] !== null && $input['nav_btc'] 
     $navBtc = floatval($input['nav_btc']);
 }
 
+// Validate NAV-ETH (optional)
+$navEth = null;
+if (isset($input['nav_eth']) && $input['nav_eth'] !== null && $input['nav_eth'] !== '') {
+    $navEthValidation = validateNumeric($input['nav_eth'], 'NAV-ETH');
+    if (!$navEthValidation['valid']) {
+        logMessage('api', $navEthValidation['error']);
+        sendJsonResponse(400, [
+            'status' => 'error',
+            'message' => $navEthValidation['error']
+        ]);
+    }
+    $navEth = floatval($input['nav_eth']);
+}
+
 // Validate System Token (optional)
 $systemToken = null;
 if (isset($input['system_token']) && $input['system_token'] !== null && $input['system_token'] !== '') {
@@ -188,7 +203,39 @@ if (isset($input['last_trade']) && $input['last_trade'] !== null && $input['last
     $lastTrade = $lastTradeValidation['datetime'];
 }
 
+// Validate Last Trade Attempt (optional, Unix timestamp format)
+$lastTradeAttempt = null;
+if (isset($input['last_trade_attempt']) && $input['last_trade_attempt'] !== null && $input['last_trade_attempt'] !== '') {
+    $lastTradeAttemptValidation = validateUnixTimestamp($input['last_trade_attempt']);
+    if (!$lastTradeAttemptValidation['valid']) {
+        logMessage('api', $lastTradeAttemptValidation['error']);
+        sendJsonResponse(400, [
+            'status' => 'error',
+            'message' => $lastTradeAttemptValidation['error']
+        ]);
+    }
+    $lastTradeAttempt = $lastTradeAttemptValidation['datetime'];
+}
 
+
+
+// Validate coin_prices (optional) – expects {"BTC": 95000.0, "ETH": 2500.0, ...}
+$coinPrices = [];
+if (isset($input['coin_prices']) && $input['coin_prices'] !== null) {
+    if (!is_array($input['coin_prices'])) {
+        sendJsonResponse(400, ['status' => 'error', 'message' => 'coin_prices must be a JSON object']);
+    }
+    foreach ($input['coin_prices'] as $coin => $price) {
+        $coin = strtoupper(trim((string) $coin));
+        if (!preg_match('/^[A-Z0-9]{1,20}$/', $coin)) {
+            sendJsonResponse(400, ['status' => 'error', 'message' => "coin_prices: invalid coin symbol '{$coin}'"]);
+        }
+        if (!is_numeric($price) || floatval($price) <= 0) {
+            sendJsonResponse(400, ['status' => 'error', 'message' => "coin_prices: price for '{$coin}' must be a positive number"]);
+        }
+        $coinPrices[$coin] = floatval($price);
+    }
+}
 
 // Validate datetime
 $datetimeValidation = validateDatetime($input['timestamp']);
@@ -235,22 +282,44 @@ try {
         // UPDATE existing strategy
         $updateStmt = $pdo->prepare('
             UPDATE strategies
-            SET nav = ?, nav_btc = ?, system_token = ?, fee_currency_balance = ?, fee_currency_balance_usd = ?, last_trade = ?, last_update = ?
+            SET nav = ?, nav_btc = ?, nav_eth = ?, system_token = ?, fee_currency_balance = ?, fee_currency_balance_usd = ?, last_trade = ?, last_trade_attempt = ?, last_update = ?
             WHERE strategy_name = ?
         ');
-        $updateStmt->execute([$nav, $navBtc, $systemToken, $feeCurrencyBalance, $feeCurrencyBalanceUsd, $lastTrade, $timestamp, $strategyName]);
+        $updateStmt->execute([$nav, $navBtc, $navEth, $systemToken, $feeCurrencyBalance, $feeCurrencyBalanceUsd, $lastTrade, $lastTradeAttempt, $timestamp, $strategyName]);
     } else {
         // INSERT new strategy
         $insertStmt = $pdo->prepare('
-            INSERT INTO strategies (strategy_name, nav, nav_btc, system_token, fee_currency_balance, fee_currency_balance_usd, last_trade, last_update)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO strategies (strategy_name, nav, nav_btc, nav_eth, system_token, fee_currency_balance, fee_currency_balance_usd, last_trade, last_trade_attempt, last_update)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ');
-        $insertStmt->execute([$strategyName, $nav, $navBtc, $systemToken, $feeCurrencyBalance, $feeCurrencyBalanceUsd, $lastTrade, $timestamp]);
+        $insertStmt->execute([$strategyName, $nav, $navBtc, $navEth, $systemToken, $feeCurrencyBalance, $feeCurrencyBalanceUsd, $lastTrade, $lastTradeAttempt, $timestamp]);
+    }
+
+    // UPSERT coin prices into prices_current
+    $savedPrices = [];
+    if (!empty($coinPrices)) {
+        $checkPrice = $pdo->prepare('SELECT id FROM prices_current WHERE coin = ?');
+        $updatePrice = $pdo->prepare('UPDATE prices_current SET price_usdt = ?, ct_exchange = ?, timestamp = ? WHERE coin = ?');
+        $insertPrice = $pdo->prepare('INSERT INTO prices_current (coin, price_usdt, ct_exchange, timestamp) VALUES (?, ?, ?, ?)');
+
+        foreach ($coinPrices as $coin => $price) {
+            $checkPrice->execute([$coin]);
+            if ($checkPrice->fetch()) {
+                $updatePrice->execute([$price, $strategyName, $timestamp, $coin]);
+            } else {
+                $insertPrice->execute([$coin, $price, $strategyName, $timestamp]);
+            }
+            $savedPrices[] = $coin;
+        }
+        logMessage('api', "Prices saved for: " . implode(', ', $savedPrices));
     }
 
     $logMsg = "Strategy '{$strategyName}' updated successfully. NAV: {$nav}";
     if ($navBtc !== null) {
         $logMsg .= ", NAV-BTC: {$navBtc}";
+    }
+    if ($navEth !== null) {
+        $logMsg .= ", NAV-ETH: {$navEth}";
     }
     if ($systemToken !== null) {
         $logMsg .= ", System Token: {$systemToken}";
@@ -267,11 +336,15 @@ try {
     $logMsg .= ", Timestamp: {$timestamp}";
     logMessage('api', $logMsg);
 
-    sendJsonResponse(200, [
+    $response = [
         'status' => 'success',
         'message' => 'Data updated successfully',
         'strategy' => $strategyName
-    ]);
+    ];
+    if (!empty($savedPrices)) {
+        $response['prices_saved'] = $savedPrices;
+    }
+    sendJsonResponse(200, $response);
 
 } catch (Exception $e) {
     logMessage('error', 'Database operation error: ' . $e->getMessage());
