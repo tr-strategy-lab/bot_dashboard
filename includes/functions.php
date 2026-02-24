@@ -292,6 +292,24 @@ function getFeeBalanceStatus(float $usdValue, array $thresholds): array {
 }
 
 /**
+ * Return the worst status from a list of status strings.
+ * Priority: danger > warning > success > none
+ *
+ * @param array $statuses List of status strings ('danger', 'warning', 'success', 'none')
+ * @return string The worst status found
+ */
+function worstStatus(array $statuses): string {
+    $priority = ['danger' => 3, 'warning' => 2, 'success' => 1, 'none' => 0];
+    $worst = 'none';
+    foreach ($statuses as $s) {
+        if (($priority[$s] ?? 0) > ($priority[$worst] ?? 0)) {
+            $worst = $s;
+        }
+    }
+    return $worst;
+}
+
+/**
  * Log API access or error
  *
  * @param string $type Log type: 'api' or 'error'

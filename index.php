@@ -340,16 +340,25 @@ $currentTimeFormatted = $currentTime->format('d.m.Y H:i:s');
                                 $status = null;
                             } else {
                                 $status = getDataStatus($strategy['last_update']);
-                                $statusClass = 'status-' . $status['status'];
+                                $rowStatuses = [$status['status']];
 
-                                // Override with trade status if more critical
                                 if ($strategy['last_trade'] !== null && $strategy['last_trade'] !== '') {
-                                    $tradeStatus = getTradeStatusWithCustomThresholds($strategy['last_trade'], $config['trade_status_thresholds']);
-                                    if ($tradeStatus['status'] === 'danger' ||
-                                        ($tradeStatus['status'] === 'warning' && $status['status'] !== 'danger')) {
-                                        $statusClass = 'status-' . $tradeStatus['status'];
+                                    $rowStatuses[] = getTradeStatusWithCustomThresholds($strategy['last_trade'], $config['trade_status_thresholds'])['status'];
+                                }
+                                if ($strategy['last_trade_attempt'] !== null && $strategy['last_trade_attempt'] !== '') {
+                                    $rowStatuses[] = getTradeStatusWithCustomThresholds($strategy['last_trade_attempt'], $config['trade_status_thresholds'])['status'];
+                                }
+
+                                $feeUsdForRow = (isset($strategy['fee_currency_balance_usd']) && $strategy['fee_currency_balance_usd'] !== null && $strategy['fee_currency_balance_usd'] !== '')
+                                    ? floatval($strategy['fee_currency_balance_usd']) : null;
+                                if ($feeUsdForRow !== null) {
+                                    $feeStatusForRow = getFeeBalanceStatus($feeUsdForRow, $config['fee_balance_thresholds']);
+                                    if ($feeStatusForRow['status'] !== 'none') {
+                                        $rowStatuses[] = $feeStatusForRow['status'];
                                     }
                                 }
+
+                                $statusClass = 'status-' . worstStatus($rowStatuses);
                             }
                             ?>
                             <tr class="<?php echo $statusClass; ?>">
