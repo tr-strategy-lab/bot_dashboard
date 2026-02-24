@@ -227,7 +227,7 @@ if (isset($input['coin_prices']) && $input['coin_prices'] !== null) {
     }
     foreach ($input['coin_prices'] as $coin => $price) {
         $coin = strtoupper(trim((string) $coin));
-        if (!preg_match('/^[A-Z0-9]{1,20}$/', $coin)) {
+        if (!preg_match('/^[A-Z0-9.]{1,20}$/', $coin)) {
             sendJsonResponse(400, ['status' => 'error', 'message' => "coin_prices: invalid coin symbol '{$coin}'"]);
         }
         if (!is_numeric($price) || floatval($price) <= 0) {
