@@ -22,6 +22,25 @@ define('DEBUG_MODE', true);
 // Get database connection
 $pdo = getPDO();
 
+// --- POST handler: delete strategy (PRG pattern) ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_strategy') {
+    $id = filter_input(INPUT_POST, 'id', FILTER_VALIDATE_INT);
+    if ($id && $id > 0) {
+        $deleted = deleteStrategy($pdo, $id);
+        $msg = $deleted ? 'success' : 'error';
+        $detail = $deleted ? '' : urlencode('Strategy not found');
+    } else {
+        $msg = 'error';
+        $detail = urlencode('Invalid strategy ID');
+    }
+    header('Location: index.php?msg=' . $msg . ($detail ? '&detail=' . $detail : ''));
+    exit;
+}
+
+// Flash message
+$flashMsg    = $_GET['msg']    ?? null;
+$flashDetail = $_GET['detail'] ?? null;
+
 // Get all strategies
 $strategies = getAllStrategies($pdo);
 
@@ -95,6 +114,19 @@ $currentTimeFormatted = $currentTime->format('d.m.Y H:i:s');
                 </div>
             </div>
         </div>
+
+        <!-- Flash message -->
+        <?php if ($flashMsg === 'success'): ?>
+            <div class="alert alert-success alert-dismissible fade show" role="alert">
+                Strategy successfully deleted.
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        <?php elseif ($flashMsg === 'error'): ?>
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                <strong>Error:</strong> <?php echo $flashDetail ? safeOutput($flashDetail) : 'An unknown error occurred.'; ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        <?php endif; ?>
 
         <?php if (DEBUG_MODE): ?>
         <div class="row mb-4">
@@ -188,6 +220,7 @@ $currentTimeFormatted = $currentTime->format('d.m.Y H:i:s');
                             <th>Last Trade</th>
                             <th>Last Attempt</th>
                             <th>LAST UPDATE</th>
+                            <th></th>
                         </tr>
                     </thead>
                     <tbody>
@@ -294,6 +327,14 @@ $currentTimeFormatted = $currentTime->format('d.m.Y H:i:s');
                                     <small class="text-muted">
                                         <?php echo $status['time_diff']; ?>
                                     </small>
+                                </td>
+                                <td>
+                                    <form method="post" action="index.php"
+                                          onsubmit="return confirm('Delete strategy «<?php echo safeOutput($strategy['strategy_name']); ?>»?')">
+                                        <input type="hidden" name="action" value="delete_strategy">
+                                        <input type="hidden" name="id" value="<?php echo (int) $strategy['id']; ?>">
+                                        <button type="submit" class="btn btn-outline-danger btn-sm">&#128465;</button>
+                                    </form>
                                 </td>
                             </tr>
                         <?php endforeach; ?>

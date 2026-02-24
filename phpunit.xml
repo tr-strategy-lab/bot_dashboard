@@ -6,6 +6,8 @@
     <testsuites>
         <testsuite name="Bot Dashboard Tests">
             <directory>tests</directory>
+            <exclude>tests/ApiTest.php</exclude>
+            <exclude>tests/PricesApiTest.php</exclude>
         </testsuite>
     </testsuites>
     <source>

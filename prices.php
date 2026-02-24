@@ -14,6 +14,21 @@ $config = include __DIR__ . '/config/config.php';
 date_default_timezone_set($config['timezone']);
 
 // --- POST handler (PRG pattern) ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_price') {
+    $coin = strtoupper(trim($_POST['coin'] ?? ''));
+    if (preg_match('/^[A-Z0-9]{1,20}$/', $coin)) {
+        $pdo = getPDO();
+        $deleted = deletePrice($pdo, $coin);
+        $msg = $deleted ? 'success' : 'error';
+        $detail = $deleted ? '' : urlencode('Coin not found');
+        $deletedCoin = $deleted ? urlencode($coin) : '';
+        header('Location: prices.php?msg=' . $msg . '&action=deleted&coin=' . $deletedCoin . ($detail ? '&detail=' . $detail : ''));
+    } else {
+        header('Location: prices.php?msg=error&detail=' . urlencode('Invalid coin symbol'));
+    }
+    exit;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $errors = [];
 
@@ -163,6 +178,7 @@ $flashDetail = $_GET['detail'] ?? null;
                             <th>Exchange</th>
                             <th>Source Timestamp</th>
                             <th>Age</th>
+                            <th></th>
                         </tr>
                     </thead>
                     <tbody>
@@ -187,6 +203,14 @@ $flashDetail = $_GET['detail'] ?? null;
                                 <td>
                                     <span class="status-indicator"><?php echo $status['indicator']; ?></span>
                                     <small class="text-muted"><?php echo $status['time_diff']; ?></small>
+                                </td>
+                                <td>
+                                    <form method="post" action="prices.php"
+                                          onsubmit="return confirm('Delete price for <?php echo safeOutput($row['coin']); ?>?')">
+                                        <input type="hidden" name="action" value="delete_price">
+                                        <input type="hidden" name="coin" value="<?php echo safeOutput($row['coin']); ?>">
+                                        <button type="submit" class="btn btn-outline-danger btn-sm">&#128465;</button>
+                                    </form>
                                 </td>
                             </tr>
                         <?php endforeach; ?>

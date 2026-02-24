@@ -404,6 +404,32 @@ function sendJsonResponse($httpCode, $data) {
 }
 
 /**
+ * Delete a strategy by ID
+ *
+ * @param PDO $pdo Database connection
+ * @param int $id Strategy ID
+ * @return bool True if a row was deleted
+ */
+function deleteStrategy(PDO $pdo, int $id): bool {
+    $stmt = $pdo->prepare('DELETE FROM strategies WHERE id = ?');
+    $stmt->execute([$id]);
+    return $stmt->rowCount() > 0;
+}
+
+/**
+ * Delete a coin price by coin symbol
+ *
+ * @param PDO $pdo Database connection
+ * @param string $coin Coin symbol (e.g. 'BTC')
+ * @return bool True if a row was deleted
+ */
+function deletePrice(PDO $pdo, string $coin): bool {
+    $stmt = $pdo->prepare('DELETE FROM prices_current WHERE coin = ?');
+    $stmt->execute([$coin]);
+    return $stmt->rowCount() > 0;
+}
+
+/**
  * Insert or update a coin price in prices_current
  *
  * @param PDO $pdo Database connection
