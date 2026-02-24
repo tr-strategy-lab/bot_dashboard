@@ -16,7 +16,7 @@ date_default_timezone_set($config['timezone']);
 // --- POST handler (PRG pattern) ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_price') {
     $coin = strtoupper(trim($_POST['coin'] ?? ''));
-    if (preg_match('/^[A-Z0-9]{1,20}$/', $coin)) {
+    if (preg_match('/^[A-Z0-9.]{1,20}$/', $coin)) {
         $pdo = getPDO();
         $deleted = deletePrice($pdo, $coin);
         $msg = $deleted ? 'success' : 'error';
@@ -38,8 +38,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $timestampRaw = trim($_POST['timestamp'] ?? '');
 
     // Validate coin
-    if (!preg_match('/^[A-Z0-9]{1,20}$/', $coin)) {
-        $errors[] = 'Coin must be 1-20 uppercase alphanumeric characters (e.g. BTC, ETH)';
+    if (!preg_match('/^[A-Z0-9.]{1,20}$/', $coin)) {
+        $errors[] = 'Coin must be 1-20 uppercase alphanumeric characters or dots (e.g. BTC, USDC.N)';
     }
 
     // Validate price

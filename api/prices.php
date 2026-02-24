@@ -64,8 +64,8 @@ if (!validateApiKey($input['api_key'], $config['api_key'])) {
 
 // Validate coin symbol: 1-20 uppercase alphanumeric characters
 $coin = strtoupper(trim($input['coin']));
-if (!preg_match('/^[A-Z0-9]{1,20}$/', $coin)) {
-    sendJsonResponse(400, ['status' => 'error', 'message' => 'Coin must be 1-20 uppercase alphanumeric characters (e.g. BTC, ETH)']);
+if (!preg_match('/^[A-Z0-9.]{1,20}$/', $coin)) {
+    sendJsonResponse(400, ['status' => 'error', 'message' => 'Coin must be 1-20 uppercase alphanumeric characters or dots (e.g. BTC, USDC.N)']);
 }
 
 // Validate price_usdt

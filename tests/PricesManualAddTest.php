@@ -117,6 +117,16 @@ class PricesManualAddTest extends TestCase
         $this->assertSame('bot', $stmt->fetchColumn());
     }
 
+    public function testCoinWithDotIsAccepted(): void
+    {
+        $result = upsertPrice($this->pdo, 'USDC.N', 1.0, null, '2025-10-22 14:00:00');
+
+        $this->assertSame('inserted', $result);
+
+        $stmt = $this->pdo->query("SELECT coin FROM prices_current WHERE coin = 'USDC.N'");
+        $this->assertSame('USDC.N', $stmt->fetchColumn());
+    }
+
     public function testMultipleDistinctCoins(): void
     {
         upsertPrice($this->pdo, 'BTC', 50000.0, null, '2025-10-22 14:00:00');
