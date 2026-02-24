@@ -404,6 +404,49 @@ function sendJsonResponse($httpCode, $data) {
 }
 
 /**
+ * Insert or update a strategy in the strategies table
+ *
+ * @param PDO $pdo Database connection
+ * @param string $strategyName Strategy name
+ * @param float $nav NAV in USD
+ * @param string|null $systemToken Fee currency token (e.g. 'ETH')
+ * @param float|null $feeCurrencyBalance Fee currency balance
+ * @param float|null $feeCurrencyBalanceUsd Fee currency balance in USD
+ * @param string $lastUpdate Datetime string (YYYY-MM-DD HH:MM:SS)
+ * @return string 'inserted' or 'updated'
+ */
+function upsertStrategy(
+    PDO $pdo,
+    string $strategyName,
+    float $nav,
+    ?string $systemToken,
+    ?float $feeCurrencyBalance,
+    ?float $feeCurrencyBalanceUsd,
+    string $lastUpdate
+): string {
+    $checkStmt = $pdo->prepare('SELECT id FROM strategies WHERE strategy_name = ?');
+    $checkStmt->execute([$strategyName]);
+    $exists = $checkStmt->fetch();
+
+    if ($exists) {
+        $stmt = $pdo->prepare('
+            UPDATE strategies
+            SET nav = ?, system_token = ?, fee_currency_balance = ?, fee_currency_balance_usd = ?, last_update = ?
+            WHERE strategy_name = ?
+        ');
+        $stmt->execute([$nav, $systemToken, $feeCurrencyBalance, $feeCurrencyBalanceUsd, $lastUpdate, $strategyName]);
+        return 'updated';
+    } else {
+        $stmt = $pdo->prepare('
+            INSERT INTO strategies (strategy_name, nav, system_token, fee_currency_balance, fee_currency_balance_usd, last_update)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ');
+        $stmt->execute([$strategyName, $nav, $systemToken, $feeCurrencyBalance, $feeCurrencyBalanceUsd, $lastUpdate]);
+        return 'inserted';
+    }
+}
+
+/**
  * Delete a strategy by ID
  *
  * @param PDO $pdo Database connection
