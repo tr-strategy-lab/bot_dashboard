@@ -398,7 +398,9 @@ $currentTimeFormatted = $currentTime->format('d.m.Y H:i:s');
                                                     $output .= rtrim(number_format($feeCurrencyBalance, 5, '.', ''), '0');
                                                 }
                                                 if ($feeCurrencyBalanceUsd !== null) {
-                                                    $output .= ' (USD ' . round($feeCurrencyBalanceUsd) . ')';
+                                                    $feeStatus = getFeeBalanceStatus(floatval($feeCurrencyBalanceUsd), $config['fee_balance_thresholds']);
+                                                    $feeIndicator = $feeStatus['indicator'] !== '' ? ' ' . $feeStatus['indicator'] : '';
+                                                    $output .= ' (USD ' . round($feeCurrencyBalanceUsd) . ')' . $feeIndicator;
                                                 }
                                                 echo $output;
                                             } else {

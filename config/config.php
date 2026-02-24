@@ -5,7 +5,7 @@ return [
     'api_key' => 'your_secret_api_key_change_this_in_production',
 
     // Dashboard-Konfiguration
-    'dashboard_title' => 'My local Test Dashboard',
+    'dashboard_title' => 'Monitoring Dashboard',
     'refresh_interval' => 60, // Sekunden
 
     // Zeitkonfiguration
@@ -21,6 +21,13 @@ return [
     'trade_status_thresholds' => [
         'success' => 120,  // Grün: < 120 Minuten (2 Stunden)
         'warning' => 480   // Gelb: 120-480 Minuten (2-8 Stunden), Rot: >= 480 Minuten
+    ],
+
+    // Schwellwerte für Fee Currency Balance (USD)
+    'fee_balance_thresholds' => [
+        'visible' => 100,  // Ampel sichtbar ab unter diesem Wert
+        'warning' => 50,   // Gelb: unter 50 USD
+        'danger'  => 30,   // Rot: unter 30 USD
     ],
 
     // Logging

@@ -273,6 +273,25 @@ function getTradeStatusWithCustomThresholds($lastTrade, $thresholds) {
 }
 
 /**
+ * Get fee currency balance status based on USD value
+ *
+ * @param float $usdValue Fee currency balance in USD
+ * @param array $thresholds ['visible' => int, 'warning' => int, 'danger' => int]
+ * @return array ['status' => string, 'indicator' => string]
+ *               status: 'none' | 'success' | 'warning' | 'danger'
+ */
+function getFeeBalanceStatus(float $usdValue, array $thresholds): array {
+    if ($usdValue < $thresholds['danger']) {
+        return ['status' => 'danger', 'indicator' => '🔴'];
+    } elseif ($usdValue < $thresholds['warning']) {
+        return ['status' => 'warning', 'indicator' => '🟡'];
+    } elseif ($usdValue < $thresholds['visible']) {
+        return ['status' => 'success', 'indicator' => '🟢'];
+    }
+    return ['status' => 'none', 'indicator' => ''];
+}
+
+/**
  * Log API access or error
  *
  * @param string $type Log type: 'api' or 'error'
