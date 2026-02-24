@@ -54,7 +54,21 @@ foreach ($strategyColumns as $column => $type) {
     }
 }
 
-// --- prices_current table ---
+// --- prices_current: source column ---
+if (tableExists($pdo, 'prices_current')) {
+    if (columnExists($pdo, 'prices_current', 'source')) {
+        $results[] = ['ok', 'prices_current.source already exists – skipped'];
+    } else {
+        try {
+            $pdo->exec("ALTER TABLE prices_current ADD COLUMN source VARCHAR(10) DEFAULT 'bot'");
+            $results[] = ['added', 'prices_current.source added'];
+        } catch (Exception $e) {
+            $results[] = ['error', 'prices_current.source – ' . $e->getMessage()];
+        }
+    }
+}
+
+// --- prices_current table (create if missing) ---
 if (tableExists($pdo, 'prices_current')) {
     $results[] = ['ok', 'prices_current table already exists – skipped'];
 } else {

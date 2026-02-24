@@ -26,7 +26,8 @@ class PricesManualAddTest extends TestCase
                 price_usdt DECIMAL(20,8) NOT NULL,
                 ct_exchange VARCHAR(50),
                 timestamp DATETIME NOT NULL,
-                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                source VARCHAR(10) DEFAULT \'bot\'
             )
         ');
     }
@@ -98,6 +99,22 @@ class PricesManualAddTest extends TestCase
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
         $this->assertNull($row['ct_exchange']);
+    }
+
+    public function testManualSourceIsStoredByDefault(): void
+    {
+        upsertPrice($this->pdo, 'BTC', 50000.0, null, '2025-10-22 14:00:00');
+
+        $stmt = $this->pdo->query("SELECT source FROM prices_current WHERE coin = 'BTC'");
+        $this->assertSame('manual', $stmt->fetchColumn());
+    }
+
+    public function testBotSourceCanBeStored(): void
+    {
+        upsertPrice($this->pdo, 'ETH', 3000.0, null, '2025-10-22 14:00:00', 'bot');
+
+        $stmt = $this->pdo->query("SELECT source FROM prices_current WHERE coin = 'ETH'");
+        $this->assertSame('bot', $stmt->fetchColumn());
     }
 
     public function testMultipleDistinctCoins(): void

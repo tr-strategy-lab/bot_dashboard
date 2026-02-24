@@ -362,7 +362,7 @@ function getAllStrategies($pdo) {
  */
 function getAllPrices($pdo) {
     try {
-        $stmt = $pdo->prepare('SELECT coin, price_usdt, ct_exchange, timestamp, created_at FROM prices_current ORDER BY coin ASC');
+        $stmt = $pdo->prepare('SELECT coin, price_usdt, ct_exchange, timestamp, created_at, COALESCE(source, \'bot\') AS source FROM prices_current ORDER BY coin ASC');
         $stmt->execute();
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     } catch (Exception $e) {
@@ -483,7 +483,7 @@ function deletePrice(PDO $pdo, string $coin): bool {
  * @param string $timestamp Datetime string (YYYY-MM-DD HH:MM:SS)
  * @return string 'inserted' or 'updated'
  */
-function upsertPrice(PDO $pdo, string $coin, float $priceUsdt, ?string $ctExchange, string $timestamp): string {
+function upsertPrice(PDO $pdo, string $coin, float $priceUsdt, ?string $ctExchange, string $timestamp, string $source = 'manual'): string {
     $checkStmt = $pdo->prepare('SELECT id FROM prices_current WHERE coin = ?');
     $checkStmt->execute([$coin]);
     $exists = $checkStmt->fetch();
@@ -491,17 +491,17 @@ function upsertPrice(PDO $pdo, string $coin, float $priceUsdt, ?string $ctExchan
     if ($exists) {
         $stmt = $pdo->prepare('
             UPDATE prices_current
-            SET price_usdt = ?, ct_exchange = ?, timestamp = ?
+            SET price_usdt = ?, ct_exchange = ?, timestamp = ?, source = ?
             WHERE coin = ?
         ');
-        $stmt->execute([$priceUsdt, $ctExchange, $timestamp, $coin]);
+        $stmt->execute([$priceUsdt, $ctExchange, $timestamp, $source, $coin]);
         return 'updated';
     } else {
         $stmt = $pdo->prepare('
-            INSERT INTO prices_current (coin, price_usdt, ct_exchange, timestamp)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO prices_current (coin, price_usdt, ct_exchange, timestamp, source)
+            VALUES (?, ?, ?, ?, ?)
         ');
-        $stmt->execute([$coin, $priceUsdt, $ctExchange, $timestamp]);
+        $stmt->execute([$coin, $priceUsdt, $ctExchange, $timestamp, $source]);
         return 'inserted';
     }
 }

@@ -105,17 +105,17 @@ try {
     if ($exists) {
         $stmt = $pdo->prepare('
             UPDATE prices_current
-            SET price_usdt = ?, ct_exchange = ?, timestamp = ?
+            SET price_usdt = ?, ct_exchange = ?, timestamp = ?, source = ?
             WHERE coin = ?
         ');
-        $stmt->execute([$priceUsdt, $ctExchange, $timestamp, $coin]);
+        $stmt->execute([$priceUsdt, $ctExchange, $timestamp, 'bot', $coin]);
         $action = 'updated';
     } else {
         $stmt = $pdo->prepare('
-            INSERT INTO prices_current (coin, price_usdt, ct_exchange, timestamp)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO prices_current (coin, price_usdt, ct_exchange, timestamp, source)
+            VALUES (?, ?, ?, ?, ?)
         ');
-        $stmt->execute([$coin, $priceUsdt, $ctExchange, $timestamp]);
+        $stmt->execute([$coin, $priceUsdt, $ctExchange, $timestamp, 'bot']);
         $action = 'inserted';
     }
 

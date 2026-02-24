@@ -183,8 +183,14 @@ $flashDetail = $_GET['detail'] ?? null;
                     </thead>
                     <tbody>
                         <?php foreach ($prices as $row):
-                            $status = getDataStatus($row['timestamp']);
-                            $statusClass = 'status-' . $status['status'];
+                            $isManual = ($row['source'] ?? 'bot') === 'manual';
+                            if ($isManual) {
+                                $statusClass = 'status-unknown';
+                                $status = null;
+                            } else {
+                                $status = getDataStatus($row['timestamp']);
+                                $statusClass = 'status-' . $status['status'];
+                            }
                         ?>
                             <tr class="<?php echo $statusClass; ?>">
                                 <td>
@@ -201,8 +207,12 @@ $flashDetail = $_GET['detail'] ?? null;
                                     <small><?php echo safeOutput(formatTimestamp($row['timestamp'])); ?></small>
                                 </td>
                                 <td>
-                                    <span class="status-indicator"><?php echo $status['indicator']; ?></span>
-                                    <small class="text-muted"><?php echo $status['time_diff']; ?></small>
+                                    <?php if ($isManual): ?>
+                                        <span class="text-muted">–</span>
+                                    <?php else: ?>
+                                        <span class="status-indicator"><?php echo $status['indicator']; ?></span>
+                                        <small class="text-muted"><?php echo $status['time_diff']; ?></small>
+                                    <?php endif; ?>
                                 </td>
                                 <td>
                                     <form method="post" action="prices.php"

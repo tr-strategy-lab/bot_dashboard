@@ -299,15 +299,15 @@ try {
     $savedPrices = [];
     if (!empty($coinPrices)) {
         $checkPrice = $pdo->prepare('SELECT id FROM prices_current WHERE coin = ?');
-        $updatePrice = $pdo->prepare('UPDATE prices_current SET price_usdt = ?, ct_exchange = ?, timestamp = ? WHERE coin = ?');
-        $insertPrice = $pdo->prepare('INSERT INTO prices_current (coin, price_usdt, ct_exchange, timestamp) VALUES (?, ?, ?, ?)');
+        $updatePrice = $pdo->prepare('UPDATE prices_current SET price_usdt = ?, ct_exchange = ?, timestamp = ?, source = ? WHERE coin = ?');
+        $insertPrice = $pdo->prepare('INSERT INTO prices_current (coin, price_usdt, ct_exchange, timestamp, source) VALUES (?, ?, ?, ?, ?)');
 
         foreach ($coinPrices as $coin => $price) {
             $checkPrice->execute([$coin]);
             if ($checkPrice->fetch()) {
-                $updatePrice->execute([$price, $strategyName, $timestamp, $coin]);
+                $updatePrice->execute([$price, $strategyName, $timestamp, 'bot', $coin]);
             } else {
-                $insertPrice->execute([$coin, $price, $strategyName, $timestamp]);
+                $insertPrice->execute([$coin, $price, $strategyName, $timestamp, 'bot']);
             }
             $savedPrices[] = $coin;
         }
