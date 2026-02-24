@@ -387,20 +387,23 @@ $currentTimeFormatted = $currentTime->format('d.m.Y H:i:s');
                                             $hasFeeData = $feeCurrencyBalance !== null || $feeCurrencyBalanceUsd !== null;
 
                                             if ($hasFeeData) {
-                                                $output = '';
+                                                $feeIndicator = '';
+                                                if ($feeCurrencyBalanceUsd !== null) {
+                                                    $feeStatus = getFeeBalanceStatus(floatval($feeCurrencyBalanceUsd), $config['fee_balance_thresholds']);
+                                                    $feeIndicator = $feeStatus['indicator'] !== '' ? $feeStatus['indicator'] . ' ' : '';
+                                                }
+                                                $output = $feeIndicator;
                                                 if ($systemToken !== null) {
                                                     $output .= safeOutput($systemToken);
                                                 }
                                                 if ($feeCurrencyBalance !== null) {
-                                                    if ($output !== '') {
+                                                    if ($output !== $feeIndicator) {
                                                         $output .= ' ';
                                                     }
                                                     $output .= rtrim(number_format($feeCurrencyBalance, 5, '.', ''), '0');
                                                 }
                                                 if ($feeCurrencyBalanceUsd !== null) {
-                                                    $feeStatus = getFeeBalanceStatus(floatval($feeCurrencyBalanceUsd), $config['fee_balance_thresholds']);
-                                                    $feeIndicator = $feeStatus['indicator'] !== '' ? ' ' . $feeStatus['indicator'] : '';
-                                                    $output .= ' (USD ' . round($feeCurrencyBalanceUsd) . ')' . $feeIndicator;
+                                                    $output .= ' (USD ' . round($feeCurrencyBalanceUsd) . ')';
                                                 }
                                                 echo $output;
                                             } else {
