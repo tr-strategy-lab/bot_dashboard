@@ -30,7 +30,8 @@ class StrategyManualAddTest extends TestCase
                 fee_currency_balance_usd DECIMAL(20,8),
                 last_trade DATETIME,
                 last_trade_attempt DATETIME,
-                last_update DATETIME NOT NULL
+                last_update DATETIME NOT NULL,
+                source VARCHAR(10) DEFAULT \'bot\'
             )
         ');
     }
@@ -98,6 +99,22 @@ class StrategyManualAddTest extends TestCase
         $this->assertNull($row['system_token']);
         $this->assertNull($row['fee_currency_balance']);
         $this->assertNull($row['fee_currency_balance_usd']);
+    }
+
+    public function testManualSourceIsStoredByDefault(): void
+    {
+        upsertStrategy($this->pdo, 'manual_strat', 1000.0, null, null, null, '2025-10-22 14:00:00');
+
+        $stmt = $this->pdo->query("SELECT source FROM strategies WHERE strategy_name = 'manual_strat'");
+        $this->assertSame('manual', $stmt->fetchColumn());
+    }
+
+    public function testBotSourceCanBeStored(): void
+    {
+        upsertStrategy($this->pdo, 'bot_strat', 1000.0, null, null, null, '2025-10-22 14:00:00', 'bot');
+
+        $stmt = $this->pdo->query("SELECT source FROM strategies WHERE strategy_name = 'bot_strat'");
+        $this->assertSame('bot', $stmt->fetchColumn());
     }
 
     public function testMultipleDistinctStrategies(): void

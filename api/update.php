@@ -282,17 +282,17 @@ try {
         // UPDATE existing strategy
         $updateStmt = $pdo->prepare('
             UPDATE strategies
-            SET nav = ?, nav_btc = ?, nav_eth = ?, system_token = ?, fee_currency_balance = ?, fee_currency_balance_usd = ?, last_trade = ?, last_trade_attempt = ?, last_update = ?
+            SET nav = ?, nav_btc = ?, nav_eth = ?, system_token = ?, fee_currency_balance = ?, fee_currency_balance_usd = ?, last_trade = ?, last_trade_attempt = ?, last_update = ?, source = ?
             WHERE strategy_name = ?
         ');
-        $updateStmt->execute([$nav, $navBtc, $navEth, $systemToken, $feeCurrencyBalance, $feeCurrencyBalanceUsd, $lastTrade, $lastTradeAttempt, $timestamp, $strategyName]);
+        $updateStmt->execute([$nav, $navBtc, $navEth, $systemToken, $feeCurrencyBalance, $feeCurrencyBalanceUsd, $lastTrade, $lastTradeAttempt, $timestamp, 'bot', $strategyName]);
     } else {
         // INSERT new strategy
         $insertStmt = $pdo->prepare('
-            INSERT INTO strategies (strategy_name, nav, nav_btc, nav_eth, system_token, fee_currency_balance, fee_currency_balance_usd, last_trade, last_trade_attempt, last_update)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO strategies (strategy_name, nav, nav_btc, nav_eth, system_token, fee_currency_balance, fee_currency_balance_usd, last_trade, last_trade_attempt, last_update, source)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ');
-        $insertStmt->execute([$strategyName, $nav, $navBtc, $navEth, $systemToken, $feeCurrencyBalance, $feeCurrencyBalanceUsd, $lastTrade, $lastTradeAttempt, $timestamp]);
+        $insertStmt->execute([$strategyName, $nav, $navBtc, $navEth, $systemToken, $feeCurrencyBalance, $feeCurrencyBalanceUsd, $lastTrade, $lastTradeAttempt, $timestamp, 'bot']);
     }
 
     // UPSERT coin prices into prices_current

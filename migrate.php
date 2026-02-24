@@ -15,7 +15,6 @@ require_once __DIR__ . '/config/database.php';
 $pdo = getPDO();
 $results = [];
 
-// Helper: check if column exists in a table (SQLite)
 function columnExists(PDO $pdo, string $table, string $column): bool {
     $stmt = $pdo->query("PRAGMA table_info($table)");
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $col) {
@@ -24,25 +23,25 @@ function columnExists(PDO $pdo, string $table, string $column): bool {
     return false;
 }
 
-// Helper: check if table exists (SQLite)
 function tableExists(PDO $pdo, string $table): bool {
     $stmt = $pdo->prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?");
     $stmt->execute([$table]);
     return $stmt->fetch() !== false;
 }
 
-// --- Migrate strategies table ---
-$columnsToAdd = [
-    'nav_btc'                 => 'DECIMAL(20,8)',
-    'nav_eth'                 => 'DECIMAL(20,8)',
-    'system_token'            => 'VARCHAR(20)',
-    'fee_currency_balance'    => 'DECIMAL(20,8)',
-    'fee_currency_balance_usd'=> 'DECIMAL(20,8)',
-    'last_trade'              => 'DATETIME',
-    'last_trade_attempt'      => 'DATETIME',
+// --- strategies table columns ---
+$strategyColumns = [
+    'nav_btc'                  => 'DECIMAL(20,8)',
+    'nav_eth'                  => 'DECIMAL(20,8)',
+    'system_token'             => 'VARCHAR(20)',
+    'fee_currency_balance'     => 'DECIMAL(20,8)',
+    'fee_currency_balance_usd' => 'DECIMAL(20,8)',
+    'last_trade'               => 'DATETIME',
+    'last_trade_attempt'       => 'DATETIME',
+    'source'                   => "VARCHAR(10) DEFAULT 'bot'",
 ];
 
-foreach ($columnsToAdd as $column => $type) {
+foreach ($strategyColumns as $column => $type) {
     if (columnExists($pdo, 'strategies', $column)) {
         $results[] = ['ok', "strategies.$column already exists – skipped"];
     } else {
@@ -55,7 +54,7 @@ foreach ($columnsToAdd as $column => $type) {
     }
 }
 
-// --- Create prices_current table ---
+// --- prices_current table ---
 if (tableExists($pdo, 'prices_current')) {
     $results[] = ['ok', 'prices_current table already exists – skipped'];
 } else {
@@ -93,16 +92,8 @@ $hasErrors = !empty(array_filter($results, fn($r) => $r[0] === 'error'));
     <div class="mt-4">
         <?php foreach ($results as [$status, $msg]): ?>
             <?php
-                $cls = match($status) {
-                    'added' => 'success',
-                    'error' => 'danger',
-                    default => 'secondary',
-                };
-                $icon = match($status) {
-                    'added' => '✓',
-                    'error' => '✗',
-                    default => '–',
-                };
+                $cls  = match($status) { 'added' => 'success', 'error' => 'danger', default => 'secondary' };
+                $icon = match($status) { 'added' => '✓', 'error' => '✗', default => '–' };
             ?>
             <div class="alert alert-<?php echo $cls; ?> py-2 mb-2">
                 <?php echo $icon; ?> <?php echo htmlspecialchars($msg); ?>

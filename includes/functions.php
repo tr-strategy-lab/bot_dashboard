@@ -345,7 +345,7 @@ function calcNavInCoin($navUsd, $coinPriceUsdt) {
  */
 function getAllStrategies($pdo) {
     try {
-        $stmt = $pdo->prepare('SELECT id, strategy_name, nav, nav_btc, nav_eth, system_token, fee_currency_balance, fee_currency_balance_usd, last_trade, last_trade_attempt, last_update FROM strategies ORDER BY strategy_name ASC');
+        $stmt = $pdo->prepare('SELECT id, strategy_name, nav, nav_btc, nav_eth, system_token, fee_currency_balance, fee_currency_balance_usd, last_trade, last_trade_attempt, last_update, COALESCE(source, \'bot\') AS source FROM strategies ORDER BY strategy_name ASC');
         $stmt->execute();
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     } catch (Exception $e) {
@@ -422,7 +422,8 @@ function upsertStrategy(
     ?string $systemToken,
     ?float $feeCurrencyBalance,
     ?float $feeCurrencyBalanceUsd,
-    string $lastUpdate
+    string $lastUpdate,
+    string $source = 'manual'
 ): string {
     $checkStmt = $pdo->prepare('SELECT id FROM strategies WHERE strategy_name = ?');
     $checkStmt->execute([$strategyName]);
@@ -431,17 +432,17 @@ function upsertStrategy(
     if ($exists) {
         $stmt = $pdo->prepare('
             UPDATE strategies
-            SET nav = ?, system_token = ?, fee_currency_balance = ?, fee_currency_balance_usd = ?, last_update = ?
+            SET nav = ?, system_token = ?, fee_currency_balance = ?, fee_currency_balance_usd = ?, last_update = ?, source = ?
             WHERE strategy_name = ?
         ');
-        $stmt->execute([$nav, $systemToken, $feeCurrencyBalance, $feeCurrencyBalanceUsd, $lastUpdate, $strategyName]);
+        $stmt->execute([$nav, $systemToken, $feeCurrencyBalance, $feeCurrencyBalanceUsd, $lastUpdate, $source, $strategyName]);
         return 'updated';
     } else {
         $stmt = $pdo->prepare('
-            INSERT INTO strategies (strategy_name, nav, system_token, fee_currency_balance, fee_currency_balance_usd, last_update)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO strategies (strategy_name, nav, system_token, fee_currency_balance, fee_currency_balance_usd, last_update, source)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         ');
-        $stmt->execute([$strategyName, $nav, $systemToken, $feeCurrencyBalance, $feeCurrencyBalanceUsd, $lastUpdate]);
+        $stmt->execute([$strategyName, $nav, $systemToken, $feeCurrencyBalance, $feeCurrencyBalanceUsd, $lastUpdate, $source]);
         return 'inserted';
     }
 }

@@ -329,20 +329,26 @@ $currentTimeFormatted = $currentTime->format('d.m.Y H:i:s');
                     <tbody>
                         <?php foreach ($strategies as $strategy): ?>
                             <?php
-                            $status = getDataStatus($strategy['last_update']);
-                            $statusClass = 'status-' . $status['status'];
+                            $isManual = ($strategy['source'] ?? 'bot') === 'manual';
                             $navUsd = floatval($strategy['nav']);
                             $navBtcCalc = calcNavInCoin($navUsd, $btcPrice);
                             $navEthCalc = calcNavInCoin($navUsd, $ethPrice);
                             $navEurCalc = calcNavInCoin($navUsd, $eurPrice);
 
-                            // Check if we have trade data to potentially override status color
-                            if ($strategy['last_trade'] !== null && $strategy['last_trade'] !== '') {
-                                $tradeStatus = getTradeStatusWithCustomThresholds($strategy['last_trade'], $config['trade_status_thresholds']);
-                                // Only override if trade status is more critical (danger > warning > success)
-                                if ($tradeStatus['status'] === 'danger' ||
-                                    ($tradeStatus['status'] === 'warning' && $status['status'] !== 'danger')) {
-                                    $statusClass = 'status-' . $tradeStatus['status'];
+                            if ($isManual) {
+                                $statusClass = 'status-unknown';
+                                $status = null;
+                            } else {
+                                $status = getDataStatus($strategy['last_update']);
+                                $statusClass = 'status-' . $status['status'];
+
+                                // Override with trade status if more critical
+                                if ($strategy['last_trade'] !== null && $strategy['last_trade'] !== '') {
+                                    $tradeStatus = getTradeStatusWithCustomThresholds($strategy['last_trade'], $config['trade_status_thresholds']);
+                                    if ($tradeStatus['status'] === 'danger' ||
+                                        ($tradeStatus['status'] === 'warning' && $status['status'] !== 'danger')) {
+                                        $statusClass = 'status-' . $tradeStatus['status'];
+                                    }
                                 }
                             }
                             ?>
@@ -424,12 +430,12 @@ $currentTimeFormatted = $currentTime->format('d.m.Y H:i:s');
                                     ?>
                                 </td>
                                 <td>
-                                    <span class="status-indicator">
-                                        <?php echo $status['indicator']; ?>
-                                    </span>
-                                    <small class="text-muted">
-                                        <?php echo $status['time_diff']; ?>
-                                    </small>
+                                    <?php if ($isManual): ?>
+                                        <span class="text-muted">–</span>
+                                    <?php else: ?>
+                                        <span class="status-indicator"><?php echo $status['indicator']; ?></span>
+                                        <small class="text-muted"><?php echo $status['time_diff']; ?></small>
+                                    <?php endif; ?>
                                 </td>
                                 <td>
                                     <form method="post" action="index.php"
