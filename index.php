@@ -23,118 +23,6 @@ define('DEBUG_MODE', true);
 // Get database connection
 $pdo = getPDO();
 
-// --- POST handler: add/update strategy (PRG pattern) ---
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'upsert_strategy') {
-    $errors = [];
-
-    $strategyName = trim($_POST['strategy_name'] ?? '');
-    $navRaw       = trim($_POST['nav'] ?? '');
-    $systemToken  = trim($_POST['system_token'] ?? '');
-    $feeBalRaw    = trim($_POST['fee_currency_balance'] ?? '');
-    $feeUsdRaw    = trim($_POST['fee_currency_balance_usd'] ?? '');
-    $timestampRaw = trim($_POST['last_update'] ?? '');
-
-    // Validate strategy name
-    $nameValidation = validateStrategyName($strategyName);
-    if (!$nameValidation['valid']) {
-        $errors[] = $nameValidation['error'];
-    }
-
-    // Validate NAV
-    $navValidation = validateNumeric($navRaw, 'NAV');
-    if (!$navValidation['valid']) {
-        $errors[] = $navValidation['error'];
-    } else {
-        $nav = floatval($navRaw);
-        if ($nav < 0) {
-            $errors[] = 'NAV must be 0 or greater';
-        }
-    }
-
-    // Validate system_token (optional)
-    $systemTokenValue = null;
-    if ($systemToken !== '') {
-        if (strlen($systemToken) > 20) {
-            $errors[] = 'System token must be max 20 characters';
-        } else {
-            $systemTokenValue = $systemToken;
-        }
-    }
-
-    // Validate fee_currency_balance (optional)
-    $feeCurrencyBalance = null;
-    if ($feeBalRaw !== '') {
-        $feeBalValidation = validateNumeric($feeBalRaw, 'Fee currency balance');
-        if (!$feeBalValidation['valid']) {
-            $errors[] = $feeBalValidation['error'];
-        } else {
-            $feeCurrencyBalance = floatval($feeBalRaw);
-        }
-    }
-
-    // Validate fee_currency_balance_usd (optional)
-    $feeCurrencyBalanceUsd = null;
-    if ($feeUsdRaw !== '') {
-        $feeUsdValidation = validateNumeric($feeUsdRaw, 'Fee balance USD');
-        if (!$feeUsdValidation['valid']) {
-            $errors[] = $feeUsdValidation['error'];
-        } else {
-            $feeCurrencyBalanceUsd = floatval($feeUsdRaw);
-        }
-    }
-
-    // Validate last_update (default: now)
-    if ($timestampRaw === '') {
-        $lastUpdate = (new DateTime())->format('Y-m-d H:i:s');
-    } else {
-        $tsNormalized = str_replace('T', ' ', $timestampRaw);
-        if (strlen($tsNormalized) === 16) {
-            $tsNormalized .= ':00';
-        }
-        $dtValidation = validateDatetime($tsNormalized);
-        if (!$dtValidation['valid']) {
-            $errors[] = $dtValidation['error'];
-        } else {
-            $lastUpdate = $tsNormalized;
-        }
-    }
-
-    if (empty($errors)) {
-        try {
-            $action = upsertStrategy($pdo, $strategyName, $nav, $systemTokenValue, $feeCurrencyBalance, $feeCurrencyBalanceUsd, $lastUpdate);
-            logMessage('api', "index.php manual upsert - Strategy '{$strategyName}' {$action}.");
-            header('Location: index.php?msg=success&action=' . urlencode($action) . '&name=' . urlencode($strategyName));
-        } catch (Exception $e) {
-            logMessage('error', 'index.php manual upsert - DB error: ' . $e->getMessage());
-            header('Location: index.php?msg=error&detail=' . urlencode('Database error'));
-        }
-    } else {
-        header('Location: index.php?msg=error&detail=' . urlencode(implode('; ', $errors)));
-    }
-    exit;
-}
-
-// --- POST handler: delete strategy (PRG pattern) ---
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_strategy') {
-    $id = filter_input(INPUT_POST, 'id', FILTER_VALIDATE_INT);
-    if ($id && $id > 0) {
-        $deleted = deleteStrategy($pdo, $id);
-        $msg = $deleted ? 'success' : 'error';
-        $detail = $deleted ? '' : urlencode('Strategy not found');
-    } else {
-        $msg = 'error';
-        $detail = urlencode('Invalid strategy ID');
-    }
-    header('Location: index.php?msg=' . $msg . ($detail ? '&detail=' . $detail : ''));
-    exit;
-}
-
-// Flash message
-$flashMsg    = $_GET['msg']    ?? null;
-$flashAction = $_GET['action'] ?? null;
-$flashName   = $_GET['name']   ?? null;
-$flashDetail = $_GET['detail'] ?? null;
-
 // Get all strategies
 $strategies = getAllStrategies($pdo);
 
@@ -230,7 +118,6 @@ $currentTimeFormatted = $currentTime->format('d.m.Y H:i:s');
                 <h1 class="mb-0"><?php echo safeOutput($config['dashboard_title']); ?></h1>
                 <a href="portfolio.php" class="btn btn-outline-primary btn-sm">Portfolio</a>
                 <a href="prices.php" class="btn btn-outline-primary btn-sm">Prices</a>
-                <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addStrategyModal">+ Add Strategy</button>
             </div>
             <div class="col-md-4 text-end">
                 <div class="dashboard-info">
@@ -248,26 +135,6 @@ $currentTimeFormatted = $currentTime->format('d.m.Y H:i:s');
             </div>
         </div>
 
-        <!-- Flash message -->
-        <?php if ($flashMsg === 'success'): ?>
-            <div class="alert alert-success alert-dismissible fade show" role="alert">
-                <?php if ($flashAction === 'deleted'): ?>
-                    Strategy successfully deleted.
-                <?php elseif ($flashAction === 'inserted'): ?>
-                    Strategy <strong><?php echo safeOutput($flashName); ?></strong> successfully added.
-                <?php elseif ($flashAction === 'updated'): ?>
-                    Strategy <strong><?php echo safeOutput($flashName); ?></strong> successfully updated.
-                <?php else: ?>
-                    Operation successful.
-                <?php endif; ?>
-                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-            </div>
-        <?php elseif ($flashMsg === 'error'): ?>
-            <div class="alert alert-danger alert-dismissible fade show" role="alert">
-                <strong>Error:</strong> <?php echo $flashDetail ? safeOutput($flashDetail) : 'An unknown error occurred.'; ?>
-                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-            </div>
-        <?php endif; ?>
 
         <?php if (DEBUG_MODE): ?>
         <div class="row mb-4">
@@ -444,7 +311,6 @@ $currentTimeFormatted = $currentTime->format('d.m.Y H:i:s');
                             <th>LAST UPDATE</th>
                             <th># Trades 24h</th>
                             <th>Success Rate</th>
-                            <th></th>
                         </tr>
                     </thead>
                     <tbody>
@@ -581,14 +447,6 @@ $currentTimeFormatted = $currentTime->format('d.m.Y H:i:s');
                                         }
                                     ?>
                                 </td>
-                                <td>
-                                    <form method="post" action="index.php"
-                                          onsubmit="return confirm('Delete strategy «<?php echo safeOutput($strategy['strategy_name']); ?>»?')">
-                                        <input type="hidden" name="action" value="delete_strategy">
-                                        <input type="hidden" name="id" value="<?php echo (int) $strategy['id']; ?>">
-                                        <button type="submit" class="btn btn-outline-danger btn-sm">&#128465;</button>
-                                    </form>
-                                </td>
                             </tr>
                         <?php endforeach; ?>
                     </tbody>
@@ -597,72 +455,7 @@ $currentTimeFormatted = $currentTime->format('d.m.Y H:i:s');
         <?php endif; ?>
     </div>
 
-    <!-- Add Strategy Modal -->
-    <div class="modal fade" id="addStrategyModal" tabindex="-1" aria-labelledby="addStrategyModalLabel" aria-hidden="true">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <form method="post" action="index.php">
-                    <input type="hidden" name="action" value="upsert_strategy">
-                    <div class="modal-header">
-                        <h5 class="modal-title" id="addStrategyModalLabel">Add / Update Strategy</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                    </div>
-                    <div class="modal-body">
-                        <div class="mb-3">
-                            <label for="strategy_name" class="form-label">Strategy Name <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" id="strategy_name" name="strategy_name"
-                                   placeholder="btc_usdt_market_making" maxlength="100" required>
-                            <div class="form-text">Alphanumeric, underscore, dash, space – max 100 characters</div>
-                        </div>
-                        <div class="mb-3">
-                            <label for="nav" class="form-label">NAV (USD) <span class="text-danger">*</span></label>
-                            <input type="number" class="form-control" id="nav" name="nav"
-                                   placeholder="10000.00" step="any" min="0" required>
-                        </div>
-                        <div class="mb-3">
-                            <label for="system_token" class="form-label">System Token <span class="text-muted">(optional)</span></label>
-                            <input type="text" class="form-control" id="system_token" name="system_token"
-                                   placeholder="ETH" maxlength="20">
-                        </div>
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label for="fee_currency_balance" class="form-label">Fee Balance <span class="text-muted">(optional)</span></label>
-                                <input type="number" class="form-control" id="fee_currency_balance" name="fee_currency_balance"
-                                       placeholder="10.5" step="any" min="0">
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label for="fee_currency_balance_usd" class="form-label">Fee Balance (USD) <span class="text-muted">(optional)</span></label>
-                                <input type="number" class="form-control" id="fee_currency_balance_usd" name="fee_currency_balance_usd"
-                                       placeholder="20000" step="any" min="0">
-                            </div>
-                        </div>
-                        <div class="mb-3">
-                            <label for="last_update" class="form-label">Last Update <span class="text-muted">(optional, default: now)</span></label>
-                            <input type="datetime-local" class="form-control" id="last_update" name="last_update">
-                        </div>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                        <button type="submit" class="btn btn-primary">Save</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
-
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="assets/js/dashboard.js" data-refresh-interval="<?php echo $config['refresh_interval']; ?>"></script>
-    <script>
-        document.getElementById('addStrategyModal').addEventListener('show.bs.modal', function () {
-            const now = new Date();
-            const pad = n => String(n).padStart(2, '0');
-            const local = now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate())
-                        + 'T' + pad(now.getHours()) + ':' + pad(now.getMinutes());
-            const tsInput = document.getElementById('last_update');
-            if (!tsInput.value) {
-                tsInput.value = local;
-            }
-        });
-    </script>
 </body>
 </html>

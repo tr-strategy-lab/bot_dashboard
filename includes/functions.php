@@ -673,3 +673,73 @@ function upsertPrice(PDO $pdo, string $coin, float $priceUsdt, ?string $ctExchan
         return 'inserted';
     }
 }
+
+/**
+ * Get all portfolio asset positions
+ *
+ * @param PDO $pdo Database connection
+ * @return array List of portfolio asset rows
+ */
+function getAllPortfolioAssets(PDO $pdo): array {
+    try {
+        $stmt = $pdo->prepare('SELECT id, account, asset, quantity FROM portfolio_assets ORDER BY account ASC, asset ASC');
+        $stmt->execute();
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Exception $e) {
+        logMessage('error', 'getAllPortfolioAssets error: ' . $e->getMessage());
+        return [];
+    }
+}
+
+/**
+ * Insert a new portfolio asset position
+ *
+ * @param PDO $pdo Database connection
+ * @param string $account Account name
+ * @param string $asset Coin symbol (must exist in prices_current)
+ * @param float $quantity Number of units
+ * @return int Inserted row ID
+ */
+function insertPortfolioAsset(PDO $pdo, string $account, string $asset, float $quantity): int {
+    $stmt = $pdo->prepare('INSERT INTO portfolio_assets (account, asset, quantity) VALUES (?, ?, ?)');
+    $stmt->execute([$account, $asset, $quantity]);
+    return (int) $pdo->lastInsertId();
+}
+
+/**
+ * Delete a portfolio asset position
+ *
+ * @param PDO $pdo Database connection
+ * @param int $id Position ID
+ * @return bool True if a row was deleted
+ */
+function deletePortfolioAsset(PDO $pdo, int $id): bool {
+    $stmt = $pdo->prepare('DELETE FROM portfolio_assets WHERE id = ?');
+    $stmt->execute([$id]);
+    return $stmt->rowCount() > 0;
+}
+
+/**
+ * Get prices with their timestamps (for status color coding)
+ *
+ * @param PDO $pdo Database connection
+ * @return array Associative array [coin => ['price_usdt' => float, 'timestamp' => string]]
+ */
+function getPricesWithTimestamps(PDO $pdo): array {
+    try {
+        $stmt = $pdo->prepare('SELECT coin, price_usdt, timestamp FROM prices_current');
+        $stmt->execute();
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $result = [];
+        foreach ($rows as $row) {
+            $result[$row['coin']] = [
+                'price_usdt' => floatval($row['price_usdt']),
+                'timestamp' => $row['timestamp'],
+            ];
+        }
+        return $result;
+    } catch (Exception $e) {
+        logMessage('error', 'getPricesWithTimestamps error: ' . $e->getMessage());
+        return [];
+    }
+}

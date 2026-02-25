@@ -34,3 +34,12 @@ CREATE TABLE IF NOT EXISTS trades (
     FOREIGN KEY (strategy_name) REFERENCES strategies(strategy_name) ON DELETE CASCADE,
     INDEX idx_trades_strategy_traded (strategy_name, traded_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS portfolio_assets (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    account VARCHAR(100) NOT NULL,
+    asset VARCHAR(20) NOT NULL,
+    quantity DECIMAL(20,8) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_portfolio_assets_asset (asset)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

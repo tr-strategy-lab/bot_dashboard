@@ -2,7 +2,8 @@
 
 /**
  * Portfolio page
- * NAV overview with BTC/ETH/EUR valuations (read-only)
+ * Shows aggregated bot strategies + manually added asset positions.
+ * Asset NAV is calculated from prices_current × quantity.
  */
 
 // Requires
@@ -17,51 +18,143 @@ $config = include __DIR__ . '/config/config.php';
 // Set timezone
 date_default_timezone_set($config['timezone']);
 
-// Debug mode
-define('DEBUG_MODE', true);
-
 // Get database connection
 $pdo = getPDO();
 
-// Get all strategies
+// --- POST handler: add portfolio asset (PRG pattern) ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_asset') {
+    $errors = [];
+
+    $account  = trim($_POST['account'] ?? '');
+    $asset    = strtoupper(trim($_POST['asset'] ?? ''));
+    $qtyRaw   = trim($_POST['quantity'] ?? '');
+
+    if ($account === '' || strlen($account) > 100) {
+        $errors[] = 'Account name is required (max 100 characters)';
+    }
+    if ($asset === '' || strlen($asset) > 20) {
+        $errors[] = 'Asset symbol is required (max 20 characters)';
+    }
+    $qtyValidation = validateNumeric($qtyRaw, 'Quantity');
+    if (!$qtyValidation['valid']) {
+        $errors[] = $qtyValidation['error'];
+    } else {
+        $quantity = floatval($qtyRaw);
+        if ($quantity <= 0) {
+            $errors[] = 'Quantity must be greater than 0';
+        }
+    }
+
+    if (empty($errors)) {
+        try {
+            insertPortfolioAsset($pdo, $account, $asset, $quantity);
+            logMessage('api', "portfolio.php - Asset position added: {$account} / {$asset} × {$quantity}");
+            header('Location: portfolio.php?msg=success&action=inserted&name=' . urlencode($account . ' / ' . $asset));
+        } catch (Exception $e) {
+            logMessage('error', 'portfolio.php add_asset - DB error: ' . $e->getMessage());
+            header('Location: portfolio.php?msg=error&detail=' . urlencode('Database error'));
+        }
+    } else {
+        header('Location: portfolio.php?msg=error&detail=' . urlencode(implode('; ', $errors)));
+    }
+    exit;
+}
+
+// --- POST handler: delete portfolio asset (PRG pattern) ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_asset') {
+    $id = filter_input(INPUT_POST, 'id', FILTER_VALIDATE_INT);
+    if ($id && $id > 0) {
+        $deleted = deletePortfolioAsset($pdo, $id);
+        $msg = $deleted ? 'success' : 'error';
+        $detail = $deleted ? '' : urlencode('Position not found');
+    } else {
+        $msg = 'error';
+        $detail = urlencode('Invalid position ID');
+    }
+    header('Location: portfolio.php?msg=' . $msg . ($detail ? '&detail=' . $detail : '&action=deleted'));
+    exit;
+}
+
+// Flash message
+$flashMsg    = $_GET['msg']    ?? null;
+$flashAction = $_GET['action'] ?? null;
+$flashName   = $_GET['name']   ?? null;
+$flashDetail = $_GET['detail'] ?? null;
+
+// Get all strategies (for bot aggregation)
 $strategies = getAllStrategies($pdo);
 
-// Get current coin prices for NAV calculations
+// Get prices with timestamps (for NAV calc + color coding)
+$pricesData = getPricesWithTimestamps($pdo);
 $coinPrices = getCurrentPrices($pdo);
 $btcPrice = $coinPrices['BTC'] ?? null;
 $ethPrice = $coinPrices['ETH'] ?? null;
-$eurPrice = $coinPrices['EUR'] ?? null;  // EUR/USD rate (price_usdt = how many USD per 1 EUR)
+$eurPrice = $coinPrices['EUR'] ?? null;
 
-if (DEBUG_MODE) {
-    error_log('Dashboard loaded. Strategies count: ' . count($strategies));
-    error_log('BTC price: ' . ($btcPrice ?? 'n/a') . ', ETH price: ' . ($ethPrice ?? 'n/a') . ', EUR/USD: ' . ($eurPrice ?? 'n/a'));
+// Get portfolio asset positions
+$portfolioAssets = getAllPortfolioAssets($pdo);
+
+// Separate bot strategies
+$botStrategies = [];
+foreach ($strategies as $strategy) {
+    if (($strategy['source'] ?? 'bot') !== 'manual') {
+        $botStrategies[] = $strategy;
+    }
 }
 
-// Calculate total strategies
-$totalStrategies = count($strategies);
-
-// Calculate total NAV, NAV-BTC, NAV-ETH, NAV-EUR from live prices
-$totalNav = 0;
-$totalNavBtc = 0;
-$totalNavEth = 0;
-$totalNavEur = 0;
-foreach ($strategies as $strategy) {
+// Aggregate bot strategies into one "multicoin" row
+$botCount = count($botStrategies);
+$botNavUsd = 0;
+$botNavBtc = 0;
+$botNavEth = 0;
+$botNavEur = 0;
+$botStatuses = [];
+foreach ($botStrategies as $strategy) {
     $navUsd = floatval($strategy['nav']);
-    $totalNav += $navUsd;
-    if ($btcPrice !== null) {
-        $totalNavBtc += calcNavInCoin($navUsd, $btcPrice);
+    $botNavUsd += $navUsd;
+    if ($btcPrice !== null) { $botNavBtc += calcNavInCoin($navUsd, $btcPrice); }
+    if ($ethPrice !== null) { $botNavEth += calcNavInCoin($navUsd, $ethPrice); }
+    if ($eurPrice !== null) { $botNavEur += calcNavInCoin($navUsd, $eurPrice); }
+
+    $botStatuses[] = getDataStatus($strategy['last_update'])['status'];
+    if (!empty($strategy['last_trade'])) {
+        $botStatuses[] = getTradeStatusWithCustomThresholds($strategy['last_trade'], $config['trade_status_thresholds'])['status'];
     }
-    if ($ethPrice !== null) {
-        $totalNavEth += calcNavInCoin($navUsd, $ethPrice);
+    if (!empty($strategy['last_trade_attempt'])) {
+        $botStatuses[] = getTradeStatusWithCustomThresholds($strategy['last_trade_attempt'], $config['trade_status_thresholds'])['status'];
     }
-    if ($eurPrice !== null) {
-        $totalNavEur += calcNavInCoin($navUsd, $eurPrice);
+    $feeUsd = (isset($strategy['fee_currency_balance_usd']) && $strategy['fee_currency_balance_usd'] !== null && $strategy['fee_currency_balance_usd'] !== '')
+        ? floatval($strategy['fee_currency_balance_usd']) : null;
+    if ($feeUsd !== null) {
+        $feeStatus = getFeeBalanceStatus($feeUsd, $config['fee_balance_thresholds']);
+        if ($feeStatus['status'] !== 'none') {
+            $botStatuses[] = $feeStatus['status'];
+        }
+    }
+}
+$botWorstStatus = !empty($botStatuses) ? worstStatus($botStatuses) : 'none';
+
+// Calculate overall totals (bot + asset positions)
+$totalNav = $botNavUsd;
+$totalNavBtc = $botNavBtc;
+$totalNavEth = $botNavEth;
+$totalNavEur = $botNavEur;
+foreach ($portfolioAssets as $pa) {
+    $assetPrice = $coinPrices[$pa['asset']] ?? null;
+    if ($assetPrice !== null) {
+        $posNav = floatval($pa['quantity']) * $assetPrice;
+        $totalNav += $posNav;
+        if ($btcPrice !== null) { $totalNavBtc += calcNavInCoin($posNav, $btcPrice); }
+        if ($ethPrice !== null) { $totalNavEth += calcNavInCoin($posNav, $ethPrice); }
+        if ($eurPrice !== null) { $totalNavEur += calcNavInCoin($posNav, $eurPrice); }
     }
 }
 
 // Get current time for display
 $currentTime = new DateTime();
 $currentTimeFormatted = $currentTime->format('d.m.Y H:i:s');
+
+$hasRows = ($botCount > 0 || !empty($portfolioAssets));
 
 ?>
 
@@ -81,14 +174,10 @@ $currentTimeFormatted = $currentTime->format('d.m.Y H:i:s');
                 <h1 class="mb-0">Portfolio</h1>
                 <a href="index.php" class="btn btn-outline-primary btn-sm">Dashboard</a>
                 <a href="prices.php" class="btn btn-outline-primary btn-sm">Prices</a>
+                <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addAssetModal">+ Add Position</button>
             </div>
             <div class="col-md-4 text-end">
                 <div class="dashboard-info">
-                    <p class="mb-0">
-                        <small class="text-muted">
-                            Active Strategies: <strong><?php echo $totalStrategies; ?></strong>
-                        </small>
-                    </p>
                     <p class="mb-0">
                         <small class="text-muted">
                             Last Update: <strong id="updateTime"><?php echo $currentTimeFormatted; ?></strong>
@@ -97,6 +186,25 @@ $currentTimeFormatted = $currentTime->format('d.m.Y H:i:s');
                 </div>
             </div>
         </div>
+
+        <!-- Flash message -->
+        <?php if ($flashMsg === 'success'): ?>
+            <div class="alert alert-success alert-dismissible fade show" role="alert">
+                <?php if ($flashAction === 'deleted'): ?>
+                    Position successfully deleted.
+                <?php elseif ($flashAction === 'inserted'): ?>
+                    Position <strong><?php echo safeOutput($flashName); ?></strong> successfully added.
+                <?php else: ?>
+                    Operation successful.
+                <?php endif; ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        <?php elseif ($flashMsg === 'error'): ?>
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                <strong>Error:</strong> <?php echo $flashDetail ? safeOutput($flashDetail) : 'An unknown error occurred.'; ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        <?php endif; ?>
 
         <div class="row mb-4">
             <div class="col-md-9">
@@ -149,153 +257,74 @@ $currentTimeFormatted = $currentTime->format('d.m.Y H:i:s');
                     </div>
                 </div>
             </div>
-
         </div>
 
-        <?php if (empty($strategies)): ?>
+        <?php if (!$hasRows): ?>
             <div class="alert alert-info" role="alert">
-                No strategies available yet. Use the API to add strategy data.
+                No positions available yet. Use "+ Add Position" to add one.
             </div>
         <?php else: ?>
             <div class="table-responsive">
                 <table class="table table-hover">
                     <thead class="table-light">
                         <tr>
-                            <th>Strategy</th>
+                            <th>Position</th>
+                            <th>Asset</th>
+                            <th># Asset</th>
                             <th>NAV</th>
                             <th>NAV-BTC</th>
                             <th>NAV-ETH</th>
                             <th>NAV-EUR</th>
-                            <th>Fee Currency</th>
-                            <th>Last Trade</th>
-                            <th>Last Attempt</th>
-                            <th>LAST UPDATE</th>
+                            <th></th>
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach ($strategies as $strategy): ?>
-                            <?php
-                            $isManual = ($strategy['source'] ?? 'bot') === 'manual';
-                            $navUsd = floatval($strategy['nav']);
-                            $navBtcCalc = calcNavInCoin($navUsd, $btcPrice);
-                            $navEthCalc = calcNavInCoin($navUsd, $ethPrice);
-                            $navEurCalc = calcNavInCoin($navUsd, $eurPrice);
+                        <?php if ($botCount > 0): ?>
+                            <tr class="status-<?php echo $botWorstStatus; ?>">
+                                <td><strong>#<?php echo $botCount; ?> multicoin</strong></td>
+                                <td></td>
+                                <td></td>
+                                <td><code><?php echo formatNav($botNavUsd); ?></code></td>
+                                <td><code><?php echo $btcPrice !== null ? formatNav($botNavBtc, 6) : '-'; ?></code></td>
+                                <td><code><?php echo $ethPrice !== null ? formatNav($botNavEth, 4) : '-'; ?></code></td>
+                                <td><code><?php echo $eurPrice !== null ? formatNav($botNavEur) : '-'; ?></code></td>
+                                <td></td>
+                            </tr>
+                        <?php endif; ?>
+                        <?php foreach ($portfolioAssets as $pa):
+                            $assetSymbol = $pa['asset'];
+                            $qty = floatval($pa['quantity']);
+                            $assetPriceData = $pricesData[$assetSymbol] ?? null;
+                            $assetPrice = $assetPriceData ? $assetPriceData['price_usdt'] : null;
+                            $posNav = $assetPrice !== null ? $qty * $assetPrice : null;
 
-                            if ($isManual) {
-                                $statusClass = 'status-unknown';
-                                $status = null;
+                            // Color coding: use price timestamp freshness
+                            if ($assetPriceData !== null) {
+                                $priceStatus = getDataStatus($assetPriceData['timestamp']);
+                                $statusClass = 'status-' . $priceStatus['status'];
                             } else {
-                                $status = getDataStatus($strategy['last_update']);
-                                $rowStatuses = [$status['status']];
-
-                                if ($strategy['last_trade'] !== null && $strategy['last_trade'] !== '') {
-                                    $rowStatuses[] = getTradeStatusWithCustomThresholds($strategy['last_trade'], $config['trade_status_thresholds'])['status'];
-                                }
-                                if ($strategy['last_trade_attempt'] !== null && $strategy['last_trade_attempt'] !== '') {
-                                    $rowStatuses[] = getTradeStatusWithCustomThresholds($strategy['last_trade_attempt'], $config['trade_status_thresholds'])['status'];
-                                }
-
-                                $feeUsdForRow = (isset($strategy['fee_currency_balance_usd']) && $strategy['fee_currency_balance_usd'] !== null && $strategy['fee_currency_balance_usd'] !== '')
-                                    ? floatval($strategy['fee_currency_balance_usd']) : null;
-                                if ($feeUsdForRow !== null) {
-                                    $feeStatusForRow = getFeeBalanceStatus($feeUsdForRow, $config['fee_balance_thresholds']);
-                                    if ($feeStatusForRow['status'] !== 'none') {
-                                        $rowStatuses[] = $feeStatusForRow['status'];
-                                    }
-                                }
-
-                                $statusClass = 'status-' . worstStatus($rowStatuses);
+                                $statusClass = 'status-unknown';
                             }
-                            ?>
+
+                            $navBtcCalc = $posNav !== null ? calcNavInCoin($posNav, $btcPrice) : null;
+                            $navEthCalc = $posNav !== null ? calcNavInCoin($posNav, $ethPrice) : null;
+                            $navEurCalc = $posNav !== null ? calcNavInCoin($posNav, $eurPrice) : null;
+                        ?>
                             <tr class="<?php echo $statusClass; ?>">
-                                <td><?php echo safeOutput($strategy['strategy_name']); ?></td>
+                                <td><?php echo safeOutput($pa['account']); ?></td>
+                                <td><code><?php echo safeOutput($assetSymbol); ?></code></td>
+                                <td><code><?php echo rtrim(rtrim(number_format($qty, 8, '.', ''), '0'), '.'); ?></code></td>
+                                <td><code><?php echo $posNav !== null ? formatNav($posNav) : '<span class="text-muted">no price</span>'; ?></code></td>
+                                <td><code><?php echo $navBtcCalc !== null ? formatNav($navBtcCalc, 6) : '-'; ?></code></td>
+                                <td><code><?php echo $navEthCalc !== null ? formatNav($navEthCalc, 4) : '-'; ?></code></td>
+                                <td><code><?php echo $navEurCalc !== null ? formatNav($navEurCalc) : '-'; ?></code></td>
                                 <td>
-                                    <code><?php echo formatNav($strategy['nav']); ?></code>
-                                </td>
-                                <td>
-                                    <code>
-                                        <?php echo $navBtcCalc !== null ? formatNav($navBtcCalc, 6) : '-'; ?>
-                                    </code>
-                                </td>
-                                <td>
-                                    <code>
-                                        <?php echo $navEthCalc !== null ? formatNav($navEthCalc, 4) : '-'; ?>
-                                    </code>
-                                </td>
-                                <td>
-                                    <code>
-                                        <?php echo $navEurCalc !== null ? formatNav($navEurCalc) : '-'; ?>
-                                    </code>
-                                </td>
-                                <td>
-                                    <code>
-                                        <?php
-                                            $systemToken = (isset($strategy['system_token']) && $strategy['system_token'] !== null && $strategy['system_token'] !== '') ? trim($strategy['system_token']) : null;
-                                            $feeCurrencyBalance = (isset($strategy['fee_currency_balance']) && $strategy['fee_currency_balance'] !== null && $strategy['fee_currency_balance'] !== '') ? $strategy['fee_currency_balance'] : null;
-                                            $feeCurrencyBalanceUsd = (isset($strategy['fee_currency_balance_usd']) && $strategy['fee_currency_balance_usd'] !== null && $strategy['fee_currency_balance_usd'] !== '') ? $strategy['fee_currency_balance_usd'] : null;
-
-                                            // Debug
-                                            if (DEBUG_MODE && !empty($strategy['system_token'])) {
-                                                error_log('DEBUG: system_token = ' . var_export($strategy['system_token'], true));
-                                            }
-
-                                            $hasFeeData = $feeCurrencyBalance !== null || $feeCurrencyBalanceUsd !== null;
-
-                                            if ($hasFeeData) {
-                                                $feeIndicator = '';
-                                                if ($feeCurrencyBalanceUsd !== null) {
-                                                    $feeStatus = getFeeBalanceStatus(floatval($feeCurrencyBalanceUsd), $config['fee_balance_thresholds']);
-                                                    $feeIndicator = $feeStatus['indicator'] !== '' ? $feeStatus['indicator'] . ' ' : '';
-                                                }
-                                                $output = $feeIndicator;
-                                                if ($systemToken !== null) {
-                                                    $output .= safeOutput($systemToken);
-                                                }
-                                                if ($feeCurrencyBalance !== null) {
-                                                    if ($output !== $feeIndicator) {
-                                                        $output .= ' ';
-                                                    }
-                                                    $output .= rtrim(number_format($feeCurrencyBalance, 5, '.', ''), '0');
-                                                }
-                                                if ($feeCurrencyBalanceUsd !== null) {
-                                                    $output .= ' (USD ' . round($feeCurrencyBalanceUsd) . ')';
-                                                }
-                                                echo $output;
-                                            } else {
-                                                echo '-';
-                                            }
-                                        ?>
-                                    </code>
-                                </td>
-                                <td>
-                                    <?php
-                                        if ($strategy['last_trade'] !== null && $strategy['last_trade'] !== '') {
-                                            $tradeStatusForDisplay = getTradeStatusWithCustomThresholds($strategy['last_trade'], $config['trade_status_thresholds']);
-                                            echo '<span class="status-indicator">' . $tradeStatusForDisplay['indicator'] . '</span>';
-                                            echo '<small class="text-muted">' . $tradeStatusForDisplay['time_diff'] . '</small>';
-                                        } else {
-                                            echo '-';
-                                        }
-                                    ?>
-                                </td>
-                                <td>
-                                    <?php
-                                        if ($strategy['last_trade_attempt'] !== null && $strategy['last_trade_attempt'] !== '') {
-                                            $attemptStatus = getTradeStatusWithCustomThresholds($strategy['last_trade_attempt'], $config['trade_status_thresholds']);
-                                            echo '<span class="status-indicator">' . $attemptStatus['indicator'] . '</span>';
-                                            echo '<small class="text-muted">' . $attemptStatus['time_diff'] . '</small>';
-                                        } else {
-                                            echo '-';
-                                        }
-                                    ?>
-                                </td>
-                                <td>
-                                    <?php if ($isManual): ?>
-                                        <span class="text-muted">–</span>
-                                    <?php else: ?>
-                                        <span class="status-indicator"><?php echo $status['indicator']; ?></span>
-                                        <small class="text-muted"><?php echo $status['time_diff']; ?></small>
-                                    <?php endif; ?>
+                                    <form method="post" action="portfolio.php"
+                                          onsubmit="return confirm('Delete «<?php echo safeOutput($pa['account'] . ' / ' . $assetSymbol); ?>»?')">
+                                        <input type="hidden" name="action" value="delete_asset">
+                                        <input type="hidden" name="id" value="<?php echo (int) $pa['id']; ?>">
+                                        <button type="submit" class="btn btn-outline-danger btn-sm">&#128465;</button>
+                                    </form>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
@@ -303,6 +332,43 @@ $currentTimeFormatted = $currentTime->format('d.m.Y H:i:s');
                 </table>
             </div>
         <?php endif; ?>
+    </div>
+
+    <!-- Add Position Modal -->
+    <div class="modal fade" id="addAssetModal" tabindex="-1" aria-labelledby="addAssetModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form method="post" action="portfolio.php">
+                    <input type="hidden" name="action" value="add_asset">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="addAssetModalLabel">Add Position</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label for="account" class="form-label">Account <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="account" name="account"
+                                   placeholder="Binance, Ledger, Bank..." maxlength="100" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="asset" class="form-label">Asset <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="asset" name="asset"
+                                   placeholder="BTC, ETH, USDT..." maxlength="20" required>
+                            <div class="form-text">Coin symbol as it appears in the price table</div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="quantity" class="form-label"># Asset <span class="text-danger">*</span></label>
+                            <input type="number" class="form-control" id="quantity" name="quantity"
+                                   placeholder="1.5" step="any" min="0" required>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Save</button>
+                    </div>
+                </form>
+            </div>
+        </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>

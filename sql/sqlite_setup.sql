@@ -37,3 +37,13 @@ CREATE TABLE IF NOT EXISTS trades (
 );
 
 CREATE INDEX IF NOT EXISTS idx_trades_strategy_traded ON trades(strategy_name, traded_at);
+
+CREATE TABLE IF NOT EXISTS portfolio_assets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account VARCHAR(100) NOT NULL,
+    asset VARCHAR(20) NOT NULL,
+    quantity DECIMAL(20,8) NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_portfolio_assets_asset ON portfolio_assets(asset);
