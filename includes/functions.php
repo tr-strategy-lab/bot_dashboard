@@ -375,33 +375,100 @@ function calcNavInCoin($navUsd, $coinPriceUsdt) {
 }
 
 /**
- * Get trade statistics (count + success rate) per strategy for the last 24 hours
+ * Get trade statistics per strategy:
+ * - count_24h: number of trades in last 24 hours
+ * - success_rate: percentage from the last 100 trades (regardless of age)
+ * - success_count: successful trades out of last 100
+ * - total: number of trades considered for success rate (max 100)
  *
  * @param PDO $pdo Database connection
- * @return array Associative array [strategy_name => ['count' => int, 'success_rate' => float|null]]
+ * @return array Associative array [strategy_name => ['count_24h' => int, 'success_rate' => float|null, 'success_count' => int, 'total' => int]]
  */
 function getTradeStats(PDO $pdo): array {
     try {
-        $stmt = $pdo->prepare("
+        // Trades last 24h per strategy
+        $stmt24h = $pdo->prepare("
             SELECT strategy_name,
-                   COUNT(*) AS trade_count,
-                   SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS success_count
+                   COUNT(*) AS trade_count
             FROM trades
             WHERE traded_at >= datetime('now', '-24 hours')
             GROUP BY strategy_name
         ");
-        $stmt->execute();
-        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $stmt24h->execute();
+        $rows24h = $stmt24h->fetchAll(PDO::FETCH_ASSOC);
+
+        $counts24h = [];
+        foreach ($rows24h as $row) {
+            $counts24h[$row['strategy_name']] = (int) $row['trade_count'];
+        }
+
+        // Success rate from last 100 trades per strategy
+        // Use a subquery to get the last 100 trades per strategy, then aggregate
+        $stmtRate = $pdo->prepare("
+            SELECT strategy_name,
+                   COUNT(*) AS total,
+                   SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS success_count
+            FROM (
+                SELECT strategy_name, success
+                FROM trades
+                ORDER BY traded_at DESC
+                LIMIT 100
+            )
+            GROUP BY strategy_name
+        ");
+        $stmtRate->execute();
+        $rowsRate = $stmtRate->fetchAll(PDO::FETCH_ASSOC);
+
+        // If there are multiple strategies, we need per-strategy LIMIT 100.
+        // SQLite doesn't support LIMIT per group easily, so query per strategy.
+        $allStrategies = array_unique(array_merge(
+            array_keys($counts24h),
+            array_column($rowsRate, 'strategy_name')
+        ));
+
+        // Get all distinct strategy names that have trades
+        $stmtNames = $pdo->prepare("SELECT DISTINCT strategy_name FROM trades");
+        $stmtNames->execute();
+        $allNames = $stmtNames->fetchAll(PDO::FETCH_COLUMN);
 
         $stats = [];
-        foreach ($rows as $row) {
-            $count = (int) $row['trade_count'];
+        foreach ($allNames as $name) {
+            $stmtLast100 = $pdo->prepare("
+                SELECT COUNT(*) AS total,
+                       SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS success_count
+                FROM (
+                    SELECT success FROM trades
+                    WHERE strategy_name = ?
+                    ORDER BY traded_at DESC
+                    LIMIT 100
+                )
+            ");
+            $stmtLast100->execute([$name]);
+            $row = $stmtLast100->fetch(PDO::FETCH_ASSOC);
+
+            $total = (int) $row['total'];
             $successCount = (int) $row['success_count'];
-            $stats[$row['strategy_name']] = [
-                'count' => $count,
-                'success_rate' => $count > 0 ? round(($successCount / $count) * 100, 1) : null,
+
+            $stats[$name] = [
+                'count_24h' => $counts24h[$name] ?? 0,
+                'success_count' => $successCount,
+                'total' => $total,
+                'success_rate' => $total > 0 ? round(($successCount / $total) * 100, 1) : null,
             ];
         }
+
+        // Also include strategies that only have 24h trades but no last-100 entry
+        foreach ($counts24h as $name => $count) {
+            if (!isset($stats[$name])) {
+                $stats[$name] = [
+                    'count_24h' => $count,
+                    'success_count' => 0,
+                    'total' => 0,
+                    'success_rate' => null,
+                ];
+            }
+        }
+
         return $stats;
     } catch (Exception $e) {
         logMessage('error', 'getTradeStats error: ' . $e->getMessage());

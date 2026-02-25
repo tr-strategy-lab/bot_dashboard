@@ -102,18 +102,23 @@ class TradesAndTransfersTest extends TestCase
         $stats = getTradeStats($this->pdo);
 
         $this->assertArrayHasKey('test_strat', $stats);
-        $this->assertSame(3, $stats['test_strat']['count']);
+        $this->assertSame(3, $stats['test_strat']['count_24h']);
+        $this->assertSame(3, $stats['test_strat']['total']);
+        $this->assertSame(2, $stats['test_strat']['success_count']);
         $this->assertEqualsWithDelta(66.7, $stats['test_strat']['success_rate'], 0.1);
     }
 
-    public function testGetTradeStatsIgnoresOldTrades(): void
+    public function testGetTradeStatsOldTradesNotIn24hButInSuccessRate(): void
     {
         $old = (new DateTime('now', new DateTimeZone('UTC')))->modify('-2 days')->format('Y-m-d H:i:s');
         insertTrade($this->pdo, 'test_strat', true, $old);
 
         $stats = getTradeStats($this->pdo);
-        // Old trade should not be counted
-        $this->assertEmpty($stats);
+        // Old trade should NOT be in 24h count
+        $this->assertSame(0, $stats['test_strat']['count_24h']);
+        // But SHOULD be in success rate (last 100 trades)
+        $this->assertSame(1, $stats['test_strat']['total']);
+        $this->assertEqualsWithDelta(100.0, $stats['test_strat']['success_rate'], 0.1);
     }
 
     public function testGetTradeStatsPerStrategy(): void
@@ -126,9 +131,9 @@ class TradesAndTransfersTest extends TestCase
 
         $stats = getTradeStats($this->pdo);
 
-        $this->assertSame(1, $stats['test_strat']['count']);
+        $this->assertSame(1, $stats['test_strat']['count_24h']);
         $this->assertEqualsWithDelta(100.0, $stats['test_strat']['success_rate'], 0.1);
-        $this->assertSame(2, $stats['other_strat']['count']);
+        $this->assertSame(2, $stats['other_strat']['count_24h']);
         $this->assertEqualsWithDelta(0.0, $stats['other_strat']['success_rate'], 0.1);
     }
 
@@ -140,6 +145,8 @@ class TradesAndTransfersTest extends TestCase
 
         $stats = getTradeStats($this->pdo);
         $this->assertEqualsWithDelta(100.0, $stats['test_strat']['success_rate'], 0.1);
+        $this->assertSame(2, $stats['test_strat']['success_count']);
+        $this->assertSame(2, $stats['test_strat']['total']);
     }
 
     // --- updateTransfers tests ---

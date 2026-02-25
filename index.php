@@ -182,7 +182,7 @@ foreach ($strategies as $strategy) {
     if ($eurPrice !== null) {
         $totalNavEur += calcNavInCoin($navUsd, $eurPrice);
     }
-    $totalTrades24h += ($tradeStats[$strategy['strategy_name']]['count'] ?? 0);
+    $totalTrades24h += ($tradeStats[$strategy['strategy_name']]['count_24h'] ?? 0);
 
     // Track oldest/worst entries (only bot strategies)
     if ($isBot) {
@@ -559,12 +559,12 @@ $currentTimeFormatted = $currentTime->format('d.m.Y H:i:s');
                                     <?php endif; ?>
                                 </td>
                                 <td class="text-center">
-                                    <?php echo $stratStats ? $stratStats['count'] : '0'; ?>
+                                    <?php echo $stratStats ? $stratStats['count_24h'] : '0'; ?>
                                 </td>
                                 <td class="text-center">
                                     <?php
-                                        if ($stratStats && $stratStats['count'] > 0) {
-                                            echo $stratStats['success_rate'] . '%';
+                                        if ($stratStats && $stratStats['total'] > 0) {
+                                            echo $stratStats['success_rate'] . '% (' . $stratStats['success_count'] . '/' . $stratStats['total'] . ')';
                                         } else {
                                             echo '-';
                                         }
