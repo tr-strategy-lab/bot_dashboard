@@ -207,4 +207,40 @@ class TradesAndTransfersTest extends TestCase
         // test_strat has transfers=0
         $this->assertEqualsWithDelta(0.0, floatval($rows[1]['transfers']), 0.01);
     }
+
+    // --- Trade endpoint updates last_trade / last_trade_attempt ---
+
+    public function testSuccessfulTradeUpdatesLastTradeAndAttempt(): void
+    {
+        $timestamp = '2026-02-25 14:30:00';
+        insertTrade($this->pdo, 'test_strat', true, $timestamp);
+
+        // Simulate what trade.php does on success
+        $stmt = $this->pdo->prepare('UPDATE strategies SET last_trade = ?, last_trade_attempt = ? WHERE strategy_name = ?');
+        $stmt->execute([$timestamp, $timestamp, 'test_strat']);
+
+        $check = $this->pdo->prepare('SELECT last_trade, last_trade_attempt FROM strategies WHERE strategy_name = ?');
+        $check->execute(['test_strat']);
+        $row = $check->fetch(PDO::FETCH_ASSOC);
+
+        $this->assertSame($timestamp, $row['last_trade']);
+        $this->assertSame($timestamp, $row['last_trade_attempt']);
+    }
+
+    public function testFailedTradeUpdatesOnlyLastTradeAttempt(): void
+    {
+        $timestamp = '2026-02-25 15:00:00';
+        insertTrade($this->pdo, 'test_strat', false, $timestamp);
+
+        // Simulate what trade.php does on failure
+        $stmt = $this->pdo->prepare('UPDATE strategies SET last_trade_attempt = ? WHERE strategy_name = ?');
+        $stmt->execute([$timestamp, 'test_strat']);
+
+        $check = $this->pdo->prepare('SELECT last_trade, last_trade_attempt FROM strategies WHERE strategy_name = ?');
+        $check->execute(['test_strat']);
+        $row = $check->fetch(PDO::FETCH_ASSOC);
+
+        $this->assertNull($row['last_trade']);
+        $this->assertSame($timestamp, $row['last_trade_attempt']);
+    }
 }

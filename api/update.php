@@ -14,12 +14,11 @@
  *   "system_token": "ETH",
  *   "fee_currency_balance": 10,
  *   "fee_currency_balance_usd": 20000,
- *   "last_trade": 1729609530,
  *   "timestamp": "2025-10-22 14:30:00"
  * }
  *
- * Note: system_token, fee_currency_balance, fee_currency_balance_usd, and last_trade are optional
- * Note: last_trade accepts Unix timestamp (integer or string)
+ * Note: system_token, fee_currency_balance, fee_currency_balance_usd are optional
+ * Note: last_trade/last_trade_attempt are tracked via POST /api/trade.php
  */
 
 // Set headers
@@ -159,35 +158,8 @@ if (isset($input['fee_currency_balance_usd']) && $input['fee_currency_balance_us
     $feeCurrencyBalanceUsd = floatval($input['fee_currency_balance_usd']);
 }
 
-// Validate Last Trade (optional, Unix timestamp format)
-$lastTrade = null;
-if (isset($input['last_trade']) && $input['last_trade'] !== null && $input['last_trade'] !== '') {
-    $lastTradeValidation = validateUnixTimestamp($input['last_trade']);
-    if (!$lastTradeValidation['valid']) {
-        logMessage('api', $lastTradeValidation['error']);
-        sendJsonResponse(400, [
-            'status' => 'error',
-            'message' => $lastTradeValidation['error']
-        ]);
-    }
-    $lastTrade = $lastTradeValidation['datetime'];
-}
-
-// Validate Last Trade Attempt (optional, Unix timestamp format)
-$lastTradeAttempt = null;
-if (isset($input['last_trade_attempt']) && $input['last_trade_attempt'] !== null && $input['last_trade_attempt'] !== '') {
-    $lastTradeAttemptValidation = validateUnixTimestamp($input['last_trade_attempt']);
-    if (!$lastTradeAttemptValidation['valid']) {
-        logMessage('api', $lastTradeAttemptValidation['error']);
-        sendJsonResponse(400, [
-            'status' => 'error',
-            'message' => $lastTradeAttemptValidation['error']
-        ]);
-    }
-    $lastTradeAttempt = $lastTradeAttemptValidation['datetime'];
-}
-
-
+// Note: last_trade and last_trade_attempt are no longer accepted here.
+// Trade timing is tracked exclusively through POST /api/trade.php
 
 // Validate coin_prices (optional) – expects {"BTC": 95000.0, "ETH": 2500.0, ...}
 $coinPrices = [];
@@ -240,16 +212,16 @@ try {
     if ($exists) {
         $updateStmt = $pdo->prepare('
             UPDATE strategies
-            SET nav = ?, system_token = ?, fee_currency_balance = ?, fee_currency_balance_usd = ?, last_trade = ?, last_trade_attempt = ?, last_update = ?, source = ?
+            SET nav = ?, system_token = ?, fee_currency_balance = ?, fee_currency_balance_usd = ?, last_update = ?, source = ?
             WHERE strategy_name = ?
         ');
-        $updateStmt->execute([$nav, $systemToken, $feeCurrencyBalance, $feeCurrencyBalanceUsd, $lastTrade, $lastTradeAttempt, $timestamp, 'bot', $strategyName]);
+        $updateStmt->execute([$nav, $systemToken, $feeCurrencyBalance, $feeCurrencyBalanceUsd, $timestamp, 'bot', $strategyName]);
     } else {
         $insertStmt = $pdo->prepare('
-            INSERT INTO strategies (strategy_name, nav, system_token, fee_currency_balance, fee_currency_balance_usd, last_trade, last_trade_attempt, last_update, source)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO strategies (strategy_name, nav, system_token, fee_currency_balance, fee_currency_balance_usd, last_update, source)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         ');
-        $insertStmt->execute([$strategyName, $nav, $systemToken, $feeCurrencyBalance, $feeCurrencyBalanceUsd, $lastTrade, $lastTradeAttempt, $timestamp, 'bot']);
+        $insertStmt->execute([$strategyName, $nav, $systemToken, $feeCurrencyBalance, $feeCurrencyBalanceUsd, $timestamp, 'bot']);
     }
 
     // UPSERT coin prices into prices_current
@@ -280,9 +252,6 @@ try {
     }
     if ($feeCurrencyBalanceUsd !== null) {
         $logMsg .= ", Fee Currency Balance USD: {$feeCurrencyBalanceUsd}";
-    }
-    if ($lastTrade !== null) {
-        $logMsg .= ", Last Trade: {$lastTrade}";
     }
     $logMsg .= ", Timestamp: {$timestamp}";
     logMessage('api', $logMsg);
