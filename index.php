@@ -142,7 +142,10 @@ $strategies = getAllStrategies($pdo);
 $coinPrices = getCurrentPrices($pdo);
 $btcPrice = $coinPrices['BTC'] ?? null;
 $ethPrice = $coinPrices['ETH'] ?? null;
-$eurPrice = $coinPrices['EUR'] ?? null;  // EUR/USD rate (price_usdt = how many USD per 1 EUR)
+$eurPrice = $coinPrices['EUR'] ?? null;
+
+// Get trade statistics (last 24h)
+$tradeStats = getTradeStats($pdo);
 
 if (DEBUG_MODE) {
     error_log('Dashboard loaded. Strategies count: ' . count($strategies));
@@ -157,9 +160,19 @@ $totalNav = 0;
 $totalNavBtc = 0;
 $totalNavEth = 0;
 $totalNavEur = 0;
+$totalTransfers = 0;
+$totalPnl = 0;
+$totalTrades24h = 0;
+$oldestUpdate = null;
+$oldestAttempt = null;
+$oldestTrade = null;
+$lowestFee = null;
 foreach ($strategies as $strategy) {
+    $isBot = ($strategy['source'] ?? 'bot') !== 'manual';
     $navUsd = floatval($strategy['nav']);
     $totalNav += $navUsd;
+    $totalTransfers += floatval($strategy['transfers']);
+    $totalPnl += ($navUsd - floatval($strategy['transfers']));
     if ($btcPrice !== null) {
         $totalNavBtc += calcNavInCoin($navUsd, $btcPrice);
     }
@@ -168,6 +181,25 @@ foreach ($strategies as $strategy) {
     }
     if ($eurPrice !== null) {
         $totalNavEur += calcNavInCoin($navUsd, $eurPrice);
+    }
+    $totalTrades24h += ($tradeStats[$strategy['strategy_name']]['count'] ?? 0);
+
+    // Track oldest/worst entries (only bot strategies)
+    if ($isBot) {
+        if ($strategy['last_update'] && ($oldestUpdate === null || $strategy['last_update'] < $oldestUpdate['last_update'])) {
+            $oldestUpdate = $strategy;
+        }
+        if (!empty($strategy['last_trade_attempt']) && ($oldestAttempt === null || $strategy['last_trade_attempt'] < $oldestAttempt['last_trade_attempt'])) {
+            $oldestAttempt = $strategy;
+        }
+        if (!empty($strategy['last_trade']) && ($oldestTrade === null || $strategy['last_trade'] < $oldestTrade['last_trade'])) {
+            $oldestTrade = $strategy;
+        }
+        $feeUsd = (isset($strategy['fee_currency_balance_usd']) && $strategy['fee_currency_balance_usd'] !== null && $strategy['fee_currency_balance_usd'] !== '')
+            ? floatval($strategy['fee_currency_balance_usd']) : null;
+        if ($feeUsd !== null && ($lowestFee === null || $feeUsd < $lowestFee['fee_currency_balance_usd'])) {
+            $lowestFee = $strategy;
+        }
     }
 }
 
@@ -310,19 +342,96 @@ $currentTimeFormatted = $currentTime->format('d.m.Y H:i:s');
                 No strategies available yet. Use the API to add strategy data.
             </div>
         <?php else: ?>
+            <div class="row mb-3">
+                <div class="col-12">
+                    <div style="background: #e8f4fd; border-radius: 8px; padding: 12px 20px; display: flex; gap: 32px; align-items: center; flex-wrap: wrap;">
+                        <div>
+                            <small class="text-muted">Strategies</small>
+                            <div class="fw-bold"><?php echo $totalStrategies; ?></div>
+                        </div>
+                        <div>
+                            <small class="text-muted">Total NAV</small>
+                            <div class="fw-bold"><?php echo formatNav($totalNav); ?></div>
+                        </div>
+                        <div>
+                            <small class="text-muted">Total Transfers</small>
+                            <div class="fw-bold"><?php echo formatNav($totalTransfers); ?></div>
+                        </div>
+                        <div>
+                            <small class="text-muted">Total PnL</small>
+                            <div class="fw-bold <?php echo $totalPnl >= 0 ? 'text-success' : 'text-danger'; ?>"><?php echo formatNav($totalPnl); ?></div>
+                        </div>
+                        <div>
+                            <small class="text-muted"># Trades 24h</small>
+                            <div class="fw-bold"><?php echo $totalTrades24h; ?></div>
+                        </div>
+                        <div>
+                            <small class="text-muted">Success Rate</small>
+                            <div class="fw-bold text-muted">–</div>
+                        </div>
+                        <div style="border-left: 1px solid #b8d4e8; padding-left: 32px;">
+                            <small class="text-muted">Oldest Update</small>
+                            <div class="fw-bold">
+                                <?php if ($oldestUpdate):
+                                    $ouStatus = getDataStatus($oldestUpdate['last_update']);
+                                    echo $ouStatus['indicator'] . ' ' . safeOutput($oldestUpdate['strategy_name']);
+                                else:
+                                    echo '–';
+                                endif; ?>
+                            </div>
+                        </div>
+                        <div>
+                            <small class="text-muted">Oldest Attempt</small>
+                            <div class="fw-bold">
+                                <?php if ($oldestAttempt):
+                                    $oaStatus = getTradeStatusWithCustomThresholds($oldestAttempt['last_trade_attempt'], $config['trade_status_thresholds']);
+                                    echo $oaStatus['indicator'] . ' ' . safeOutput($oldestAttempt['strategy_name']);
+                                else:
+                                    echo '–';
+                                endif; ?>
+                            </div>
+                        </div>
+                        <div>
+                            <small class="text-muted">Oldest Trade</small>
+                            <div class="fw-bold">
+                                <?php if ($oldestTrade):
+                                    $otStatus = getTradeStatusWithCustomThresholds($oldestTrade['last_trade'], $config['trade_status_thresholds']);
+                                    echo $otStatus['indicator'] . ' ' . safeOutput($oldestTrade['strategy_name']);
+                                else:
+                                    echo '–';
+                                endif; ?>
+                            </div>
+                        </div>
+                        <div>
+                            <small class="text-muted">Buy Fees</small>
+                            <div class="fw-bold">
+                                <?php if ($lowestFee):
+                                    $lfStatus = getFeeBalanceStatus(floatval($lowestFee['fee_currency_balance_usd']), $config['fee_balance_thresholds']);
+                                    $lfIndicator = $lfStatus['indicator'] !== '' ? $lfStatus['indicator'] . ' ' : '';
+                                    echo $lfIndicator . safeOutput($lowestFee['strategy_name']) . ' (USD ' . round(floatval($lowestFee['fee_currency_balance_usd'])) . ')';
+                                else:
+                                    echo '–';
+                                endif; ?>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <div class="table-responsive">
                 <table class="table table-hover">
                     <thead class="table-light">
                         <tr>
                             <th>Strategy</th>
                             <th>NAV</th>
-                            <th>NAV-BTC</th>
-                            <th>NAV-ETH</th>
-                            <th>NAV-EUR</th>
+                            <th>Transfers</th>
+                            <th>PnL Total</th>
                             <th>Fee Currency</th>
                             <th>Last Trade</th>
                             <th>Last Attempt</th>
                             <th>LAST UPDATE</th>
+                            <th># Trades 24h</th>
+                            <th>Success Rate</th>
                             <th></th>
                         </tr>
                     </thead>
@@ -331,9 +440,9 @@ $currentTimeFormatted = $currentTime->format('d.m.Y H:i:s');
                             <?php
                             $isManual = ($strategy['source'] ?? 'bot') === 'manual';
                             $navUsd = floatval($strategy['nav']);
-                            $navBtcCalc = calcNavInCoin($navUsd, $btcPrice);
-                            $navEthCalc = calcNavInCoin($navUsd, $ethPrice);
-                            $navEurCalc = calcNavInCoin($navUsd, $eurPrice);
+                            $transfersVal = floatval($strategy['transfers']);
+                            $pnlVal = $navUsd - $transfersVal;
+                            $stratStats = $tradeStats[$strategy['strategy_name']] ?? null;
 
                             if ($isManual) {
                                 $statusClass = 'status-unknown';
@@ -367,18 +476,15 @@ $currentTimeFormatted = $currentTime->format('d.m.Y H:i:s');
                                     <code><?php echo formatNav($strategy['nav']); ?></code>
                                 </td>
                                 <td>
-                                    <code>
-                                        <?php echo $navBtcCalc !== null ? formatNav($navBtcCalc, 6) : '-'; ?>
-                                    </code>
+                                    <input type="number" step="any"
+                                           class="form-control form-control-sm transfers-input"
+                                           data-strategy-id="<?php echo (int) $strategy['id']; ?>"
+                                           value="<?php echo $transfersVal; ?>"
+                                           style="width: 110px; font-size: 0.85em;">
                                 </td>
                                 <td>
-                                    <code>
-                                        <?php echo $navEthCalc !== null ? formatNav($navEthCalc, 4) : '-'; ?>
-                                    </code>
-                                </td>
-                                <td>
-                                    <code>
-                                        <?php echo $navEurCalc !== null ? formatNav($navEurCalc) : '-'; ?>
+                                    <code class="<?php echo $pnlVal >= 0 ? 'text-success' : 'text-danger'; ?>">
+                                        <?php echo formatNav($pnlVal); ?>
                                     </code>
                                 </td>
                                 <td>
@@ -450,6 +556,18 @@ $currentTimeFormatted = $currentTime->format('d.m.Y H:i:s');
                                         <span class="status-indicator"><?php echo $status['indicator']; ?></span>
                                         <small class="text-muted"><?php echo $status['time_diff']; ?></small>
                                     <?php endif; ?>
+                                </td>
+                                <td class="text-center">
+                                    <?php echo $stratStats ? $stratStats['count'] : '0'; ?>
+                                </td>
+                                <td class="text-center">
+                                    <?php
+                                        if ($stratStats && $stratStats['count'] > 0) {
+                                            echo $stratStats['success_rate'] . '%';
+                                        } else {
+                                            echo '-';
+                                        }
+                                    ?>
                                 </td>
                                 <td>
                                     <form method="post" action="index.php"

@@ -2,14 +2,14 @@ CREATE TABLE IF NOT EXISTS strategies (
     id INT AUTO_INCREMENT PRIMARY KEY,
     strategy_name VARCHAR(100) UNIQUE NOT NULL,
     nav DECIMAL(20,8) NOT NULL,
-    nav_btc DECIMAL(20,8),
-    nav_eth DECIMAL(20,8),
+    transfers DECIMAL(20,8) DEFAULT 0,
     system_token VARCHAR(20),
     fee_currency_balance DECIMAL(20,8),
     fee_currency_balance_usd DECIMAL(20,8),
     last_trade DATETIME,
     last_trade_attempt DATETIME,
     last_update TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    source VARCHAR(10) DEFAULT 'bot',
     INDEX idx_strategy_name (strategy_name),
     INDEX idx_last_update (last_update)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -21,5 +21,16 @@ CREATE TABLE IF NOT EXISTS prices_current (
     ct_exchange VARCHAR(50),
     timestamp DATETIME NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    source VARCHAR(10) DEFAULT 'bot',
     INDEX idx_prices_coin (coin)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS trades (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    strategy_name VARCHAR(100) NOT NULL,
+    success BOOLEAN NOT NULL DEFAULT 0,
+    traded_at DATETIME NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (strategy_name) REFERENCES strategies(strategy_name) ON DELETE CASCADE,
+    INDEX idx_trades_strategy_traded (strategy_name, traded_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

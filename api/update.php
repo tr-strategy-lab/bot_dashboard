@@ -11,8 +11,6 @@
  *   "api_key": "your_secret_api_key_here",
  *   "strategy_name": "btc_usdt_strategy_1",
  *   "nav": 10250.45678900,
- *   "nav_btc": 0.25678900,
- *   "nav_eth": 5.12345678,
  *   "system_token": "ETH",
  *   "fee_currency_balance": 10,
  *   "fee_currency_balance_usd": 20000,
@@ -20,7 +18,7 @@
  *   "timestamp": "2025-10-22 14:30:00"
  * }
  *
- * Note: nav_btc, nav_eth, system_token, fee_currency_balance, fee_currency_balance_usd, and last_trade are optional
+ * Note: system_token, fee_currency_balance, fee_currency_balance_usd, and last_trade are optional
  * Note: last_trade accepts Unix timestamp (integer or string)
  */
 
@@ -117,34 +115,6 @@ if (!$navValidation['valid']) {
         'status' => 'error',
         'message' => $navValidation['error']
     ]);
-}
-
-// Validate NAV-BTC (optional)
-$navBtc = null;
-if (isset($input['nav_btc']) && $input['nav_btc'] !== null && $input['nav_btc'] !== '') {
-    $navBtcValidation = validateNumeric($input['nav_btc'], 'NAV-BTC');
-    if (!$navBtcValidation['valid']) {
-        logMessage('api', $navBtcValidation['error']);
-        sendJsonResponse(400, [
-            'status' => 'error',
-            'message' => $navBtcValidation['error']
-        ]);
-    }
-    $navBtc = floatval($input['nav_btc']);
-}
-
-// Validate NAV-ETH (optional)
-$navEth = null;
-if (isset($input['nav_eth']) && $input['nav_eth'] !== null && $input['nav_eth'] !== '') {
-    $navEthValidation = validateNumeric($input['nav_eth'], 'NAV-ETH');
-    if (!$navEthValidation['valid']) {
-        logMessage('api', $navEthValidation['error']);
-        sendJsonResponse(400, [
-            'status' => 'error',
-            'message' => $navEthValidation['error']
-        ]);
-    }
-    $navEth = floatval($input['nav_eth']);
 }
 
 // Validate System Token (optional)
@@ -257,42 +227,29 @@ try {
     $timestamp = $input['timestamp'];
 
     if (DEBUG_MODE) {
-        logMessage('api', "Processing: Strategy=$strategyName, NAV=$nav, NAV_BTC=$navBtc, Fee=$feeCurrencyBalance");
+        logMessage('api', "Processing: Strategy=$strategyName, NAV=$nav, Fee=$feeCurrencyBalance");
         logMessage('api', "Fee Currency Balance received: " . (isset($input['fee_currency_balance']) ? $input['fee_currency_balance'] : 'NOT SET'));
         logMessage('api', "Full input data: " . json_encode($input));
     }
 
-    // UPSERT logic: Try INSERT, if strategy_name exists, UPDATE
-    $stmt = $pdo->prepare('
-        INSERT INTO strategies (strategy_name, nav, nav_btc, last_update)
-        VALUES (:strategy_name, :nav, :nav_btc, :timestamp)
-        ON CONFLICT(strategy_name) DO UPDATE SET
-            nav = :nav,
-            nav_btc = :nav_btc,
-            last_update = :timestamp
-    ');
-
-    // For SQLite compatibility, we use a different approach
-    // First check if strategy exists
+    // UPSERT logic: check if strategy exists, then INSERT or UPDATE
     $checkStmt = $pdo->prepare('SELECT id FROM strategies WHERE strategy_name = ?');
     $checkStmt->execute([$strategyName]);
     $exists = $checkStmt->fetch();
 
     if ($exists) {
-        // UPDATE existing strategy
         $updateStmt = $pdo->prepare('
             UPDATE strategies
-            SET nav = ?, nav_btc = ?, nav_eth = ?, system_token = ?, fee_currency_balance = ?, fee_currency_balance_usd = ?, last_trade = ?, last_trade_attempt = ?, last_update = ?, source = ?
+            SET nav = ?, system_token = ?, fee_currency_balance = ?, fee_currency_balance_usd = ?, last_trade = ?, last_trade_attempt = ?, last_update = ?, source = ?
             WHERE strategy_name = ?
         ');
-        $updateStmt->execute([$nav, $navBtc, $navEth, $systemToken, $feeCurrencyBalance, $feeCurrencyBalanceUsd, $lastTrade, $lastTradeAttempt, $timestamp, 'bot', $strategyName]);
+        $updateStmt->execute([$nav, $systemToken, $feeCurrencyBalance, $feeCurrencyBalanceUsd, $lastTrade, $lastTradeAttempt, $timestamp, 'bot', $strategyName]);
     } else {
-        // INSERT new strategy
         $insertStmt = $pdo->prepare('
-            INSERT INTO strategies (strategy_name, nav, nav_btc, nav_eth, system_token, fee_currency_balance, fee_currency_balance_usd, last_trade, last_trade_attempt, last_update, source)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO strategies (strategy_name, nav, system_token, fee_currency_balance, fee_currency_balance_usd, last_trade, last_trade_attempt, last_update, source)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ');
-        $insertStmt->execute([$strategyName, $nav, $navBtc, $navEth, $systemToken, $feeCurrencyBalance, $feeCurrencyBalanceUsd, $lastTrade, $lastTradeAttempt, $timestamp, 'bot']);
+        $insertStmt->execute([$strategyName, $nav, $systemToken, $feeCurrencyBalance, $feeCurrencyBalanceUsd, $lastTrade, $lastTradeAttempt, $timestamp, 'bot']);
     }
 
     // UPSERT coin prices into prices_current
@@ -315,12 +272,6 @@ try {
     }
 
     $logMsg = "Strategy '{$strategyName}' updated successfully. NAV: {$nav}";
-    if ($navBtc !== null) {
-        $logMsg .= ", NAV-BTC: {$navBtc}";
-    }
-    if ($navEth !== null) {
-        $logMsg .= ", NAV-ETH: {$navEth}";
-    }
     if ($systemToken !== null) {
         $logMsg .= ", System Token: {$systemToken}";
     }

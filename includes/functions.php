@@ -375,6 +375,70 @@ function calcNavInCoin($navUsd, $coinPriceUsdt) {
 }
 
 /**
+ * Get trade statistics (count + success rate) per strategy for the last 24 hours
+ *
+ * @param PDO $pdo Database connection
+ * @return array Associative array [strategy_name => ['count' => int, 'success_rate' => float|null]]
+ */
+function getTradeStats(PDO $pdo): array {
+    try {
+        $stmt = $pdo->prepare("
+            SELECT strategy_name,
+                   COUNT(*) AS trade_count,
+                   SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS success_count
+            FROM trades
+            WHERE traded_at >= datetime('now', '-24 hours')
+            GROUP BY strategy_name
+        ");
+        $stmt->execute();
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $stats = [];
+        foreach ($rows as $row) {
+            $count = (int) $row['trade_count'];
+            $successCount = (int) $row['success_count'];
+            $stats[$row['strategy_name']] = [
+                'count' => $count,
+                'success_rate' => $count > 0 ? round(($successCount / $count) * 100, 1) : null,
+            ];
+        }
+        return $stats;
+    } catch (Exception $e) {
+        logMessage('error', 'getTradeStats error: ' . $e->getMessage());
+        return [];
+    }
+}
+
+/**
+ * Update transfers value for a strategy
+ *
+ * @param PDO $pdo Database connection
+ * @param int $strategyId Strategy ID
+ * @param float $transfers Transfers value
+ * @return bool True if a row was updated
+ */
+function updateTransfers(PDO $pdo, int $strategyId, float $transfers): bool {
+    $stmt = $pdo->prepare('UPDATE strategies SET transfers = ? WHERE id = ?');
+    $stmt->execute([$transfers, $strategyId]);
+    return $stmt->rowCount() > 0;
+}
+
+/**
+ * Log a trade for a strategy
+ *
+ * @param PDO $pdo Database connection
+ * @param string $strategyName Strategy name
+ * @param bool $success Whether the trade was successful
+ * @param string $tradedAt Datetime string (YYYY-MM-DD HH:MM:SS)
+ * @return int Inserted trade ID
+ */
+function insertTrade(PDO $pdo, string $strategyName, bool $success, string $tradedAt): int {
+    $stmt = $pdo->prepare('INSERT INTO trades (strategy_name, success, traded_at) VALUES (?, ?, ?)');
+    $stmt->execute([$strategyName, $success ? 1 : 0, $tradedAt]);
+    return (int) $pdo->lastInsertId();
+}
+
+/**
  * Get all strategies from database
  *
  * @param PDO $pdo Database connection
@@ -382,7 +446,7 @@ function calcNavInCoin($navUsd, $coinPriceUsdt) {
  */
 function getAllStrategies($pdo) {
     try {
-        $stmt = $pdo->prepare('SELECT id, strategy_name, nav, nav_btc, nav_eth, system_token, fee_currency_balance, fee_currency_balance_usd, last_trade, last_trade_attempt, last_update, COALESCE(source, \'bot\') AS source FROM strategies ORDER BY strategy_name ASC');
+        $stmt = $pdo->prepare('SELECT id, strategy_name, nav, COALESCE(transfers, 0) AS transfers, system_token, fee_currency_balance, fee_currency_balance_usd, last_trade, last_trade_attempt, last_update, COALESCE(source, \'bot\') AS source FROM strategies ORDER BY strategy_name ASC');
         $stmt->execute();
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     } catch (Exception $e) {
