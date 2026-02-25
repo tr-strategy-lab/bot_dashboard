@@ -163,6 +163,8 @@ $totalNavEur = 0;
 $totalTransfers = 0;
 $totalPnl = 0;
 $totalTrades24h = 0;
+$totalSuccessCount = 0;
+$totalTradesForRate = 0;
 $oldestUpdate = null;
 $oldestAttempt = null;
 $oldestTrade = null;
@@ -182,7 +184,10 @@ foreach ($strategies as $strategy) {
     if ($eurPrice !== null) {
         $totalNavEur += calcNavInCoin($navUsd, $eurPrice);
     }
-    $totalTrades24h += ($tradeStats[$strategy['strategy_name']]['count_24h'] ?? 0);
+    $stratName = $strategy['strategy_name'];
+    $totalTrades24h += ($tradeStats[$stratName]['count_24h'] ?? 0);
+    $totalSuccessCount += ($tradeStats[$stratName]['success_count'] ?? 0);
+    $totalTradesForRate += ($tradeStats[$stratName]['total'] ?? 0);
 
     // Track oldest/worst entries (only bot strategies)
     if ($isBot) {
@@ -368,7 +373,13 @@ $currentTimeFormatted = $currentTime->format('d.m.Y H:i:s');
                         </div>
                         <div>
                             <small class="text-muted">Success Rate</small>
-                            <div class="fw-bold text-muted">–</div>
+                            <div class="fw-bold"><?php
+                                if ($totalTradesForRate > 0) {
+                                    echo round(($totalSuccessCount / $totalTradesForRate) * 100, 1) . '% (' . $totalSuccessCount . '/' . $totalTradesForRate . ')';
+                                } else {
+                                    echo '–';
+                                }
+                            ?></div>
                         </div>
                         <div style="border-left: 1px solid #b8d4e8; padding-left: 32px;">
                             <small class="text-muted">Oldest Update</small>
