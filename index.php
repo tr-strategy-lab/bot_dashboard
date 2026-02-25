@@ -223,6 +223,7 @@ $currentTimeFormatted = $currentTime->format('d.m.Y H:i:s');
         <div class="row mb-4">
             <div class="col-md-8 d-flex align-items-center gap-3">
                 <h1 class="mb-0"><?php echo safeOutput($config['dashboard_title']); ?></h1>
+                <a href="portfolio.php" class="btn btn-outline-primary btn-sm">Portfolio</a>
                 <a href="prices.php" class="btn btn-outline-primary btn-sm">Prices</a>
                 <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addStrategyModal">+ Add Strategy</button>
             </div>

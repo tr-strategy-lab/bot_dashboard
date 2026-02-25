@@ -125,6 +125,7 @@ $flashDetail = $_GET['detail'] ?? null;
         <div class="row mb-4">
             <div class="col-md-8 d-flex align-items-center gap-3">
                 <a href="index.php" class="btn btn-outline-secondary btn-sm">&#8592; Dashboard</a>
+                <a href="portfolio.php" class="btn btn-outline-primary btn-sm">Portfolio</a>
                 <h1 class="mb-0">Current Prices</h1>
             </div>
             <div class="col-md-4 text-end">
