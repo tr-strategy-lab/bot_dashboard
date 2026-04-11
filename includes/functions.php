@@ -360,6 +360,35 @@ function getCurrentPrices($pdo) {
 }
 
 /**
+ * Calculate fee currency balance in USD from token amount and current prices.
+ *
+ * Looks up the system_token price first in the supplied coin prices (from the
+ * same request), then falls back to the prices_current table.
+ *
+ * @param string $systemToken  Token symbol (e.g. 'ETH')
+ * @param float  $balance      Amount of the token
+ * @param array  $coinPrices   Prices from the current request [coin => price_usdt]
+ * @param PDO    $pdo          Database connection for prices_current fallback
+ * @return float|null USD value, or null if price unavailable
+ */
+function calcFeeCurrencyBalanceUsd(string $systemToken, float $balance, array $coinPrices, PDO $pdo): ?float {
+    $token = strtoupper($systemToken);
+
+    // 1) Try prices sent in the same request
+    if (isset($coinPrices[$token]) && $coinPrices[$token] > 0) {
+        return $balance * $coinPrices[$token];
+    }
+
+    // 2) Fall back to prices_current table
+    $prices = getCurrentPrices($pdo);
+    if (isset($prices[$token]) && $prices[$token] > 0) {
+        return $balance * $prices[$token];
+    }
+
+    return null;
+}
+
+/**
  * Calculate NAV expressed in a given coin
  * Returns null if price is zero or unavailable
  *

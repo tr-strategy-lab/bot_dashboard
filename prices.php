@@ -198,7 +198,7 @@ $flashDetail = $_GET['detail'] ?? null;
                                     <strong><?php echo safeOutput($row['coin']); ?></strong>
                                 </td>
                                 <td>
-                                    <code><?php echo number_format(floatval($row['price_usdt']), 2, ',', '.'); ?></code>
+                                    <code><?php echo number_format(floatval($row['price_usdt']), 4, ',', '.'); ?></code>
                                     <small class="text-muted ms-1">USDT</small>
                                 </td>
                                 <td>
